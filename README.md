@@ -1,8 +1,18 @@
-#RivIndel
+# RivIndel
 IN CONSTRUCTION!
 
+## Motivation
+Complex indels (cxIndels) often introduce multiple deletions, insertions and mismatches during the alignment phase.
+Complex indels are prone to be found on highly instable genomes such as Lung Adenocarcinomas.
+A correct interpretation in terms of net base change is crucial: e.g. exon 19 EGFR inframe deletions are actionable, but not frameshift deletions.
+
+These variants are typically called as multiple individual variants by some popular somatic callers (Mutect2, Lancet, etc).
+However, since these individual variants are closely located, there is a high chance that they come from a single compound variant.
+
 RivIndel detects complex indels from targeted sequencing (Illumina).
-RivIndel scans every targeted region (supplied as a BED file) to identify potential complex indels.
+RivIndel scans every targeted region (supplied as a BED file) in a similar fashion than indelSeek.
+However, RivIndel validates candidate cxIdels after a successful assembly of candidate reads (plus neighbouring soft-clipped reads).
+This, in turn, leads to a better allele frequency estimation.
 
 ## Method overview
 ![Slide](img/rivindel_schema2.png)

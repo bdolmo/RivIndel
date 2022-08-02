@@ -75,7 +75,7 @@ def align_reads_to_contig(reads, contig: str):
             supporting_reads += 1
     return supporting_reads
 
-def refine_cigar_operators(read):
+def refine_cigar_operators(read: str) -> dict:
     '''
     '''
     operation_dict = {
@@ -131,8 +131,8 @@ def refine_cigar_operators(read):
                 idx+=1
         flag = False
         start = -1
-        max_distance = 25
-        end = -25
+        max_distance = 10
+        end = -5
         for i in range(0, len(op_str)):
             ref_ntd = ref_cigar_list[i].upper()
             read_ntd = read_cigar_list[i].upper()
@@ -243,7 +243,7 @@ def parse_arguments():
     parser.add_argument( '--bam', dest='bam_file', type = str,
         help="Input BAM file", required=True)
     parser.add_argument( '--bed', dest='bed_file', type = str,
-        help="Regions to operate", required=True)
+        help="BED regions to search", required=True)
     parser.add_argument( '--vcf', dest='vcf_out', type = str,
         help="Output vcf", required=True)
 
