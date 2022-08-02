@@ -2,36 +2,78 @@ import os
 import sys
 import pysam
 import argparse
+import pyximport
+import re
+import edlib
+from collections import defaultdict
+pyximport.install()
+from src.assembler import DeBruijnAssembler
+from src.bed import BedRecord
+from src.vcf import VCFwriter, Record, VCFreader
 
-
-class BedRecord():
-    '''
-        Class to store BED records.
-    '''
-    def __init__(self, chr: str, start: int, end: int):
-        self.chr = chr
-        self.start = start
-        self.end = end
-        if start > end:
-            msg = f" ERROR: start {start} cannot be greater than end {end}"
-            raise ValueError(msg)
-    def __repr__(self):
-        return f"{self.chr}\t{self.start}\t{self.end}"
-
-
-def scan_indels(active_regions: list, bam: str, genome_fasta: str):
+def scan_complex_indels(active_regions: list, bam: str):
     '''
     '''
 
+    indel_calls = list()
     samfile = pysam.AlignmentFile(bam, "rb")
     for region in active_regions:
-
         spanning_r = get_spanning_coordinates_from_alns(bam, region.chr,
             region.start, region.end)
-
+        variants = dict()
+        other_reads = list()
         for read in samfile.fetch(region.chr, region.start, region.end):
-            # ref_sequence = read.get_reference_sequence()
-            refine_cigar_operators(read)
+            cx_indel = refine_cigar_operators(read)
+            if cx_indel:
+                if cx_indel['VAR_ID'] not in variants:
+                    variants[cx_indel['VAR_ID']] = cx_indel
+                else:
+                    variants[cx_indel['VAR_ID']]['SEQ'].append(read.seq)
+            if re.search(r"[0-9]+[S|M][0-9]+[S|M]",read.cigarstring):
+                other_reads.append(read.seq)
+
+        for var in variants:
+            seq_list = variants[var]['SEQ'] + other_reads
+            dbg = DeBruijnAssembler(seq_list, 17)
+            contig = dbg.eulerian_walk()
+            supporting_reads = 0
+            if contig:
+                supporting_reads = align_reads_to_contig(seq_list, contig)
+
+            depth_info = samfile.count_coverage(variants[var]['CHROM'],
+                int(variants[var]['POS'])-1,
+                int(variants[var]['POS']),
+                quality_threshold = 0)
+            depth = 0
+            for base in depth_info:
+                depth += base[0]
+
+            call_dict = {
+                "CHROM": variants[var]['CHROM'],
+                "POS": variants[var]['POS'],
+                "REF": variants[var]['REF'],
+                "ID": ".",
+                "ALT": variants[var]['ALT'],
+                "QUAL": ".",
+                "FILTER": ".",
+                "INFO": {
+                    "AC": supporting_reads,
+                    "DP": depth,
+                    "AF": round(supporting_reads/depth, 4)
+                }
+            }
+            indel_calls.append(call_dict)
+    return indel_calls
+
+def align_reads_to_contig(reads, contig: str):
+    '''
+    '''
+    supporting_reads = 0
+    for read in reads:
+        aln_stats = edlib.align(read, contig, mode = "HW", task = "path")
+        if int(aln_stats['editDistance']) < 4:
+            supporting_reads += 1
+    return supporting_reads
 
 def refine_cigar_operators(read):
     '''
@@ -48,55 +90,85 @@ def refine_cigar_operators(read):
         8: "X",
         9: "B"
     }
-
+    var_dict = dict()
     if len(read.cigartuples) > 1:
         read_seq = read.query_sequence
         ref_seq = read.get_reference_sequence()
-        # print(ref_seq)
-        # print(read_seq)
         op_str = ""
         for op in read.cigartuples:
             op_type = operation_dict[op[0]]
             op_span = op[1]
             for i in range(0, op_span):
                 op_str+=op_type
+
+        valid_ops = ["D", "I", "M"]
+        num = 0
+        for op in valid_ops:
+            if not op in op_str:
+                pass
+            else:
+                num+=1
+        if num < 2:
+            return var_dict
+
         idx = 0
         jdx = 0
-        read_str = ""
-        ref_str = ""
+        read_cigar_list = list()
+        ref_cigar_list = list()
         for op in op_str:
             if op == "M":
-                read_str+=read_seq[idx]
-                ref_str+=ref_seq[jdx]
+                read_cigar_list.append(read_seq[idx].upper())
+                ref_cigar_list.append(ref_seq[jdx].upper())
                 idx+=1
                 jdx+=1
             if op == "D":
-                read_str+= "-"
-                ref_str+=ref_seq[jdx]
+                read_cigar_list.append("*")
+                ref_cigar_list.append(ref_seq[jdx].upper())
                 jdx+=1
-
-            if op == "I":
-                ref_str+= "-"
-                read_str+=read_seq[idx]
+            if op == "I" or op == "S":
+                read_cigar_list.append(read_seq[idx].upper())
+                ref_cigar_list.append("*")
                 idx+=1
-        print(ref_str)
-        print(op_str)
-        print(read_str)
-        print("\n")
-
-
-
-        # sys.exit()
-        # print(op_str)
-        # print(read_str)
-        # print("\n")
-
+        flag = False
+        start = -1
+        max_distance = 25
+        end = -25
+        for i in range(0, len(op_str)):
+            ref_ntd = ref_cigar_list[i].upper()
+            read_ntd = read_cigar_list[i].upper()
+            if flag is False:
+                if (ref_ntd != read_ntd and op_str[i] == "M") or (op_str[i] == "D" or op_str[i] == "I"):
+                    flag = True
+                    start = i
+                    end = i
+            if flag is True:
+                if (ref_ntd != read_ntd and op_str[i] == "M") or (op_str[i] == "D" or op_str[i] == "I"):
+                    if i-end <= max_distance:
+                        if i > end:
+                            end = i
+                    else:
+                        start = i
+                        end = i
+        if start > 0:
+            if (end - start) >= 2:
+                ref = ''.join(filter(lambda char: char != '*', ref_cigar_list[start:end+1]))
+                alt = ''.join(filter(lambda char: char != '*', read_cigar_list[start:end+1]))
+                var_id = f"{read.pos+start+1}-{ref}-{alt}"
+                var_dict = {
+                    "VAR_ID": var_id,
+                    "CHROM": f"chr{str(read.reference_id)}",
+                    "POS": read.pos+start+1,
+                    "REF": ref,
+                    "ALT": alt,
+                    "SEQ": list()
+                }
+    return var_dict
 
 def get_spanning_coordinates_from_alns(bam: str, chr: str, start: int,
     end: int)-> BedRecord:
     '''
-        Give a BED record, traverse all overlapping reads and retrieve the
-        entire overlapping region
+        Given a BED record, loop throught overlapping reads and get the minimum
+        and maximum genomic coordinates.
     '''
     max_start = 10e10
     max_end = 0
@@ -141,10 +213,28 @@ def main():
     args = parse_arguments()
     bam = args.bam_file
     bed = args.bed_file
-    genome_fasta = args.genome_fasta
+    vcf_out = args.vcf_out
 
     active_regions = parse_active_regions(bed)
-    scan_indels(active_regions, bam, genome_fasta)
+
+    vcf = VCFwriter(vcf_out, sample_name="TEST")
+    header = vcf.header
+    vcf.write(header)
+    indel_calls = scan_complex_indels(active_regions, bam)
+    for indel in indel_calls:
+        info_list = list()
+        for field in indel['INFO']:
+            info_list.append(f"{field}={str(indel['INFO'][field])}")
+        info_str = ';'.join(info_list)
+
+        out_list = [indel['CHROM'], str(indel['POS']),
+            indel['ID'], indel['REF'],indel['ALT'],
+            indel['QUAL'], indel['FILTER'], info_str]
+        out_str = '\t'.join(out_list)
+
+        vcf.write(out_str)
+    vcf.close()
+
 
 def parse_arguments():
     '''
@@ -154,8 +244,8 @@ def parse_arguments():
         help="Input BAM file", required=True)
     parser.add_argument( '--bed', dest='bed_file', type = str,
         help="Regions to operate", required=True)
-    parser.add_argument( '--fasta', dest='genome_fasta', type = str,
-        help="Genome file in FASTA format", required=True)
+    parser.add_argument( '--vcf', dest='vcf_out', type = str,
+        help="Output vcf", required=True)
 
     args = parser.parse_args()
     return args
