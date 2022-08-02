@@ -5,7 +5,7 @@ RivIndel detects complex indels from targeted sequencing (Illumina).
 RivIndel scans every targeted region (supplied as a BED file) to identify potential complex indels.
 
 ## Method overview
-![Slide](img/rivindel_schema.png)
+![Slide](img/rivindel_schema2.png)
 
 ## Install RivIndel locally
 
