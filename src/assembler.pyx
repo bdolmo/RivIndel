@@ -25,6 +25,9 @@ class DeBruijnAssembler():
 
     G = dict()
     nodes = dict()
+
+    # unique_reads = set(self.reads)
+
     for read in self.reads:
       i = 0
       for i in range(0, len(read)-self.k):
@@ -34,34 +37,56 @@ class DeBruijnAssembler():
         node_r = None
         if km1_l in nodes:
           node_l = nodes[km1_l]
+          node_l.nout+=1
         else:
           node_l = Node(km1_l)
+          node_l.nout+=1
           nodes[km1_l] = node_l
           G[node_l] = list()
         if km1_r in nodes:
           node_r = nodes[km1_r]
+          node_r.nin+=1
         else:
           node_r = Node(km1_r)
+          node_r.nin+=1
           nodes[km1_r] = node_r
           G[node_r] = list()
-        node_r.nin+=1
-        node_l.nout+=1
-        G[node_l].append(node_r)
+        if node_r not in G[node_l]:
+          G[node_l].append(node_r)
+
     return G
 
-  def eulerian_walk(self) -> str:
+  def eulerian_walk(self):
     '''
     '''
+    contig_list = list()
+
+    if len(self.g.keys()) == 0:
+      return ""
     start = list(self.g.keys())[0]
     for node in self.g:
-      if node.nin < start.nin:
-        start = node
+      for subnode in self.g[node]:
+        if node.nin < start.nin:
+          start = node
+
     current = start
     contig = current.km1mer
 
-    while len(self.g[current]) > 0:
-      next = self.g[current][0]
-      del self.g[current][0]
-      contig += next.km1mer[-1]
-      current = next
-    return contig
+    tour = list()
+    def _visit(current):
+      while len(self.g[current]) > 0:
+        dst = self.g[current].pop()
+        _visit(dst)
+      tour.append(current)
+
+    _visit(current)
+    tour = tour[::-1]
+    for n in tour:
+      if n.nout == 0:
+        contig+=n.km1mer[-1]
+        contig_list.append(contig)
+        contig = ""
+      else:
+        contig+=n.km1mer[-1]
+
+    return contig_list

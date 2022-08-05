@@ -18,28 +18,39 @@ def scan_complex_indels(active_regions: list, bam: str):
     indel_calls = list()
     samfile = pysam.AlignmentFile(bam, "rb")
     for region in active_regions:
-        spanning_r = get_spanning_coordinates_from_alns(bam, region.chr,
-            region.start, region.end)
+        msg = f" INFO: scanning region {region}"
+        print(msg)
+        # spanning_r = get_spanning_coordinates_from_alns(bam, region.chr,
+        #     region.start, region.end)
+        list_variants = list()
         variants = dict()
         other_reads = list()
         for read in samfile.fetch(region.chr, region.start, region.end):
+            if read.mapping_quality < 10:
+                continue
             cx_indel = refine_cigar_operators(read)
             if cx_indel:
                 if cx_indel['VAR_ID'] not in variants:
                     variants[cx_indel['VAR_ID']] = cx_indel
+                    variants[cx_indel['VAR_ID']]['SEQ'].append(read)
                 else:
-                    variants[cx_indel['VAR_ID']]['SEQ'].append(read.seq)
+                    variants[cx_indel['VAR_ID']]['SEQ'].append(read)
             if re.search(r"[0-9]+[S|M][0-9]+[S|M]",read.cigarstring):
-                other_reads.append(read.seq)
-
+                other_reads.append(read)
         for var in variants:
-            seq_list = variants[var]['SEQ'] + other_reads
-            dbg = DeBruijnAssembler(seq_list, 17)
-            contig = dbg.eulerian_walk()
-            supporting_reads = 0
-            if contig:
-                supporting_reads = align_reads_to_contig(seq_list, contig)
-
+            read_list = variants[var]['SEQ'] + other_reads
+            seq_list = list()
+            read_list = variants[var]['SEQ'] + other_reads
+            for read in read_list:
+                seq_list.append(read.query_sequence)
+            dbg = DeBruijnAssembler(seq_list, 21)
+            contig_list = dbg.eulerian_walk()
+            # print(contig_list)
+            # if variants[var]['CHROM'] == "chr7":
+            #     print(variants[var]['CHROM'] + " " + contig)
+            if not contig_list:
+                continue
+            aln_stats = align_reads_to_contig(read_list, contig_list)
             depth_info = samfile.count_coverage(variants[var]['CHROM'],
                 int(variants[var]['POS'])-1,
                 int(variants[var]['POS']),
@@ -47,7 +58,12 @@ def scan_complex_indels(active_regions: list, bam: str):
             depth = 0
             for base in depth_info:
                 depth += base[0]
-
+            if depth == 0:
+                AF = 0
+            else:
+                AF = round(aln_stats['supporting_reads']/depth, 4)
+            AC = aln_stats['supporting_reads']
+            refc = depth-AC
             call_dict = {
                 "CHROM": variants[var]['CHROM'],
                 "POS": variants[var]['POS'],
@@ -57,23 +73,35 @@ def scan_complex_indels(active_regions: list, bam: str):
                 "QUAL": ".",
                 "FILTER": ".",
                 "INFO": {
-                    "AC": supporting_reads,
+                    "SOURCE": "RivIndel",
+                    "AC": AC,
                     "DP": depth,
-                    "AF": round(supporting_reads/depth, 4)
-                }
+                    "AF": AF
+                },
+                "FORMAT": "GT:AD:AF:DP:F1R2:F2R1:SB",
+                "SAMPLE": f"0/1:{AC},{refc}:{AF}:{depth}:{aln_stats['fwd_reads']}:{aln_stats['rev_reads']}:."
             }
             indel_calls.append(call_dict)
     return indel_calls
 
-def align_reads_to_contig(reads, contig: str):
+def align_reads_to_contig(reads, contigs) -> dict:
     '''
     '''
-    supporting_reads = 0
-    for read in reads:
-        aln_stats = edlib.align(read, contig, mode = "HW", task = "path")
-        if int(aln_stats['editDistance']) < 4:
-            supporting_reads += 1
-    return supporting_reads
+    aln_dict = {
+        'supporting_reads' : 0,
+        'fwd_reads': 0,
+        'rev_reads': 0
+    }
+    for contig in contigs:
+        for read in reads:
+            aln_stats = edlib.align(read.query_sequence, contig, mode = "HW", task = "path")
+            if int(aln_stats['editDistance']) < 4:
+                if read.is_forward:
+                    aln_dict['fwd_reads'] += 1
+                else:
+                    aln_dict['rev_reads'] += 1
+                aln_dict['supporting_reads'] += 1
+    return aln_dict
 
 def refine_cigar_operators(read: str) -> dict:
     '''
@@ -91,13 +119,18 @@ def refine_cigar_operators(read: str) -> dict:
         9: "B"
     }
     var_dict = dict()
+    if not read.cigartuples:
+        return var_dict
     if len(read.cigartuples) > 1:
+        # print(read)
         read_seq = read.query_sequence
         ref_seq = read.get_reference_sequence()
         op_str = ""
         for op in read.cigartuples:
             op_type = operation_dict[op[0]]
             op_span = op[1]
+            if op_type == "H":
+                continue
             for i in range(0, op_span):
                 op_str+=op_type
 
@@ -116,6 +149,8 @@ def refine_cigar_operators(read: str) -> dict:
         read_cigar_list = list()
         ref_cigar_list = list()
         for op in op_str:
+            if op == "H":
+                continue
             if op == "M":
                 read_cigar_list.append(read_seq[idx].upper())
                 ref_cigar_list.append(ref_seq[jdx].upper())
@@ -129,11 +164,13 @@ def refine_cigar_operators(read: str) -> dict:
                 read_cigar_list.append(read_seq[idx].upper())
                 ref_cigar_list.append("*")
                 idx+=1
+
         flag = False
         start = -1
         max_distance = 10
         end = -5
         for i in range(0, len(op_str)):
+
             ref_ntd = ref_cigar_list[i].upper()
             read_ntd = read_cigar_list[i].upper()
             if flag is False:
@@ -176,6 +213,10 @@ def get_spanning_coordinates_from_alns(bam: str, chr: str, start: int,
     for read in samfile.fetch(chr, start, end):
         if read.pos < max_start:
             max_start = read.pos
+        if not read.is_mapped:
+            continue
+        if read.mapping_quality < 10:
+            continue
         read_end = read.pos + read.reference_length
         if read_end > max_end:
             max_end = read_end
@@ -214,14 +255,20 @@ def main():
     bam = args.bam_file
     bed = args.bed_file
     vcf_out = args.vcf_out
+    min_reads = args.min_reads
 
     active_regions = parse_active_regions(bed)
 
     vcf = VCFwriter(vcf_out, sample_name="TEST")
     header = vcf.header
     vcf.write(header)
+    format = "GT:AD:AF:DP:F1R2:F2R1:SB"
     indel_calls = scan_complex_indels(active_regions, bam)
     for indel in indel_calls:
+
+        if indel['INFO']['AC'] < min_reads:
+            continue
+
         info_list = list()
         for field in indel['INFO']:
             info_list.append(f"{field}={str(indel['INFO'][field])}")
@@ -229,7 +276,7 @@ def main():
 
         out_list = [indel['CHROM'], str(indel['POS']),
             indel['ID'], indel['REF'],indel['ALT'],
-            indel['QUAL'], indel['FILTER'], info_str]
+            indel['QUAL'], indel['FILTER'], info_str, format, indel['SAMPLE']]
         out_str = '\t'.join(out_list)
 
         vcf.write(out_str)
@@ -246,6 +293,9 @@ def parse_arguments():
         help="BED regions to search", required=True)
     parser.add_argument( '--vcf', dest='vcf_out', type = str,
         help="Output vcf", required=True)
+    parser.add_argument( '--min_reads', dest='min_reads', type = int,
+        help="Minimum read support", default=2)
+
 
     args = parser.parse_args()
     return args
