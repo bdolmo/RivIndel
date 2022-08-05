@@ -45,9 +45,6 @@ def scan_complex_indels(active_regions: list, bam: str):
                 seq_list.append(read.query_sequence)
             dbg = DeBruijnAssembler(seq_list, 21)
             contig_list = dbg.eulerian_walk()
-            # print(contig_list)
-            # if variants[var]['CHROM'] == "chr7":
-            #     print(variants[var]['CHROM'] + " " + contig)
             if not contig_list:
                 continue
             aln_stats = align_reads_to_contig(read_list, contig_list)
@@ -81,7 +78,8 @@ def scan_complex_indels(active_regions: list, bam: str):
                 "FORMAT": "GT:AD:AF:DP:F1R2:F2R1:SB",
                 "SAMPLE": f"0/1:{AC},{refc}:{AF}:{depth}:{aln_stats['fwd_reads']}:{aln_stats['rev_reads']}:."
             }
-            indel_calls.append(call_dict)
+            if len(variants[var]['ALT']) > 1 and len(variants[var]['REF']) > 1:
+                indel_calls.append(call_dict)
     return indel_calls
 
 def align_reads_to_contig(reads, contigs) -> dict:
@@ -265,10 +263,9 @@ def main():
     format = "GT:AD:AF:DP:F1R2:F2R1:SB"
     indel_calls = scan_complex_indels(active_regions, bam)
     for indel in indel_calls:
-
+        # skip low allele count variants
         if indel['INFO']['AC'] < min_reads:
             continue
-
         info_list = list()
         for field in indel['INFO']:
             info_list.append(f"{field}={str(indel['INFO'][field])}")
