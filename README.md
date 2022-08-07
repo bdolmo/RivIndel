@@ -25,9 +25,9 @@ git clone https://github.com/bdolmo/RivIndel.git
 cd RivIndel/
 ```
 
-2. Execute setup.py
+2. Install via pip
 ```
-python3 setup.py install
+pip3 install -e .
 ```
 
 ## Usage
