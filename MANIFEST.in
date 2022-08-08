@@ -1,3 +1,4 @@
 include MANIFEST.in
-include img/rivindel_schema2.png 
+include img/rivindel_schema2.png
+include test/*
 global-include *.pyx

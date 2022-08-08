@@ -2,8 +2,8 @@ import argparse
 import pyximport
 pyximport.install()
 
-from src.scan import parse_active_regions, scan_complex_indels
-from src.report import write_variants
+from src.rivindel.scan import parse_active_regions, scan_complex_indels
+from src.rivindel.report import write_variants
 
 
 def main():

@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 from Cython.Build import cythonize
 
 
@@ -6,9 +6,9 @@ with open("README.md") as fh:
     long_description = fh.read()
 
 setup(
-    name="RivIndel",
+    name="rivindel",
     spython_requires=">=3.6",
-    version="0.0.2",
+    version="0.0.1",
     author="Bernat del Olmo",
     author_email="bernatdelolmo@gmail.com",
     description="RivIndel: Complex indel detection from short read sequencing",
@@ -31,8 +31,8 @@ setup(
         "Topic :: Scientific/Engineering :: Medical Science Apps.",
         "Topic :: Scientific/Engineering :: Visualization",
     ],
-    # package_dir={'': "src"},
-    # packages=find_packages("src"),
-    ext_modules=cythonize(["src/assembler.pyx"]),
+    package_dir={'': "src"},
+    packages=["rivindel"],
+    ext_modules=cythonize(["src/rivindel/assembler.pyx"]),
 
 )
