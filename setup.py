@@ -1,4 +1,4 @@
-from setuptools import setup, find_packages
+from setuptools import setup
 from Cython.Build import cythonize
 
 
@@ -31,8 +31,8 @@ setup(
         "Topic :: Scientific/Engineering :: Medical Science Apps.",
         "Topic :: Scientific/Engineering :: Visualization",
     ],
-    package_dir={'':"src"},
-    packages=find_packages("src"),
-    ext_modules=cythonize("src/assembler.pyx"),
+    # package_dir={'': "src"},
+    # packages=find_packages("src"),
+    ext_modules=cythonize(["src/assembler.pyx"]),
 
 )

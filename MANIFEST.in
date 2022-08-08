@@ -1,0 +1,3 @@
+include MANIFEST.in
+include img/rivindel_schema2.png 
+global-include *.pyx

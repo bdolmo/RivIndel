@@ -1,9 +1,9 @@
 import argparse
 import pyximport
+pyximport.install()
+
 from src.scan import parse_active_regions, scan_complex_indels
 from src.report import write_variants
-
-pyximport.install()
 
 
 def main():

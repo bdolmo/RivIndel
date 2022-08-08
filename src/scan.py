@@ -186,6 +186,7 @@ def scan_complex_indels(active_regions: list, bam: str) -> dict:
             AC = aln_stats["supporting_reads"]
             refc = depth - AC
 
+            strand_reads = f"{aln_stats['fwd_reads']}:{aln_stats['rev_reads']}:."
             call_dict = {
                 "CHROM": variants[var]["CHROM"],
                 "POS": variants[var]["POS"],
@@ -196,10 +197,7 @@ def scan_complex_indels(active_regions: list, bam: str) -> dict:
                 "FILTER": ".",
                 "INFO": {"SOURCE": "RivIndel", "AC": AC, "DP": depth, "AF": AF},
                 "FORMAT": "GT:AD:AF:DP:F1R2:F2R1:SB",
-                "SAMPLE": (
-                    f"0/1:{AC},{refc}:{AF}:{depth}:",
-                    f"{aln_stats['fwd_reads']}:{aln_stats['rev_reads']}:.",
-                ),
+                "SAMPLE": f"0/1:{AC},{refc}:{AF}:{depth}:{strand_reads}",
             }
             if len(variants[var]["ALT"]) > 1 and len(variants[var]["REF"]) > 1:
                 indel_calls.append(call_dict)

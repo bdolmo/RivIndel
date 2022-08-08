@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools", "wheel", "Cython"]
+requires = ["setuptools==59.6.0", "wheel==0.37.0", "Cython==0.29.24"]
 build-backend = "setuptools.build_meta"
+
 [tool.isort]
 profile = "black"

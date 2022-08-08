@@ -9,7 +9,7 @@ def write_variants(indel_calls: dict, vcf_out: str, bam: str, min_reads: int) ->
     vcf = VCFwriter(vcf_out, sample_name=sample_name)
     header = vcf.header
     vcf.write(header)
-    format = "GT:AD:AF:DP:F1R2:F2R1:SB"
+    fmt = "GT:AD:AF:DP:F1R2:F2R1:SB"
 
     for indel in indel_calls:
         # skip low allele count variants
@@ -29,8 +29,8 @@ def write_variants(indel_calls: dict, vcf_out: str, bam: str, min_reads: int) ->
             indel["QUAL"],
             indel["FILTER"],
             info_str,
-            format,
-            indel["SAMPLE"],
+            fmt,
+            str(indel["SAMPLE"]),
         ]
         out_str = "\t".join(out_list)
 
