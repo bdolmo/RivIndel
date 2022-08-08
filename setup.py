@@ -8,7 +8,7 @@ with open("README.md") as fh:
 setup(
     name="RivIndel",
     spython_requires=">=3.6",
-    version="0.0.1",
+    version="0.0.2",
     author="Bernat del Olmo",
     author_email="bernatdelolmo@gmail.com",
     description="RivIndel: Complex indel detection from short read sequencing",
