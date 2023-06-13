@@ -14,3 +14,13 @@ def get_sample_name_from_bam(bam: str) -> str:
         if "SM" in header_dict["RG"][0]:
             sample_name = header_dict["RG"][0]["SM"]
     return sample_name
+
+def reverse_complement(dna_sequence):
+    # Define the complement mapping
+    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+
+    # Generate the complement sequence
+    complement_sequence = "".join(complement[base] for base in dna_sequence)
+
+    # Reverse the sequence and return
+    return complement_sequence[::-1]

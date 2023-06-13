@@ -1,13 +1,13 @@
 import pysam
 import re
-from .assembler import DeBruijnAssembler
+from .assembler import DeBruijnAssembler, OverlapAssembler
 from .align import align_reads_to_contigs
 from .bed import BedRecord
 
 
 def parse_active_regions(bed: str) -> list():
     """
-    Read a givem BED and return a list of regions to operate.
+    Read a given BED and return a list of regions to operate.
     An evolution of this function could be to parse the entire BAM file
     to locate candidate complex indels.
     """
@@ -22,10 +22,10 @@ def parse_active_regions(bed: str) -> list():
             if len(tmp) < 3:
                 msg = f" ERROR: line {line} cannot be parsed into at least three items"
                 raise ValueError(msg)
-            chr = tmp[0]
+            chromosome = tmp[0]
             start = int(tmp[1])
             end = int(tmp[2])
-            bed_r = BedRecord(chr, start, end)
+            bed_r = BedRecord(chromosome, start, end)
             active_regions.append(bed_r)
     f.close()
     return active_regions
@@ -159,14 +159,17 @@ def scan_complex_indels(active_regions: list, bam: str) -> dict:
                     variants[cx_indel["VAR_ID"]]["SEQ"].append(read)
             if re.search(r"[0-9]+[S|M][0-9]+[S|M]", read.cigarstring):
                 other_reads.append(read)
+
         for var in variants:
-            read_list = variants[var]["SEQ"] + other_reads
             seq_list = list()
             read_list = variants[var]["SEQ"] + other_reads
             for read in read_list:
                 seq_list.append(read.query_sequence)
-            dbg = DeBruijnAssembler(seq_list, 21)
-            contig_list = dbg.eulerian_walk()
+            oas = OverlapAssembler(seq_list, 31)
+            contig_list = oas.compute_overlaps()
+  
+            # dbg = DeBruijnAssembler(seq_list, 21)
+            # contig_list = dbg.eulerian_walk()
             if not contig_list:
                 continue
             aln_stats = align_reads_to_contigs(read_list, contig_list)

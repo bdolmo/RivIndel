@@ -1,5 +1,5 @@
 ##fileformat=VCFv4.2
-##filedate=080822
+##filedate=130623
 ##contig=<ID=chrM,length=16571>
 ##contig=<ID=chr1,length=249250621>
 ##contig=<ID=chr2,length=243199373>
@@ -26,4 +26,3 @@
 ##contig=<ID=chrX,length=155270560>
 ##contig=<ID=chrY,length=59373566>
 #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	AP0198-22
-chr7	55242467	.	AATTAAGAGAAG	AGC	.	.	SOURCE=RivIndel;AC=7;DP=119;AF=0.0588	GT:AD:AF:DP:F1R2:F2R1:SB	0/1:7,112:0.0588:119:6:1:.

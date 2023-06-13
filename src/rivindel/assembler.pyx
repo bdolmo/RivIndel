@@ -1,6 +1,95 @@
 import os
 import sys
 import random
+from Bio import Align
+from Bio.Seq import Seq
+from align import Aligner
+
+class Contig():
+
+    def __init__(self, seq):
+        self._seq = seq
+        self._layout = []
+
+class OverlapAssembler():
+    """ """
+    def __init__(self, reads, k):
+        self.reads = list(set(reads))
+        self.k = k
+
+    def get_max_overlaps(self, reads):
+        """ """
+        aligner = Align.PairwiseAligner()
+        aligner.mode = 'global'
+        aligner.match_score = 2
+        aligner.mismatch_score = -5
+        aligner.open_gap_score = -20
+        aligner.extend_gap_score = -1
+        aligner.target_end_gap_score = 0.0
+        aligner.query_end_gap_score = 0.0
+
+        for read1 in reads:
+            max_overlap = 0
+            max_read = None
+            contig = None
+            for read2 in reads:
+                if read1 == read2:
+                    continue
+
+                alignments = aligner.align(read1, read2)
+                optimal_aln = alignments[0]
+                seg1 = optimal_aln.aligned[0]
+                seg2 = optimal_aln.aligned[1]
+                # print(optimal_aln)
+                if len(seg1) == 1 and len(seg2) == 1:
+                    # print(optimal_aln, seg1,seg1[0], seg2, seg2[0])
+                    if seg1[0][0] == 0 and seg2[0][1] == len(read2):
+                        subseq1 = read2
+                        subseq2 = read1[seg1[0][1]:]
+                        overlap = seg1[0][1]
+                    elif seg1[0][1] == len(read1) and seg2[0][0] == 0:
+                        subseq2 = read2
+                        subseq1 = read1[0:seg1[0][0]]
+                        overlap = seg2[0][1]
+                    else:
+                        continue
+                    if overlap > max_overlap and overlap > 20:
+                        max_overlap = overlap
+                        max_read = read2
+                        contig = subseq1+subseq2
+
+            return read1, max_read, max_overlap, contig
+
+    def compute_overlaps(self):
+        reads = self.reads
+
+        bag = []
+        for read in reads:
+            c_read = Contig(read)
+            bag.append(c_read)
+
+        contigs = []
+        while reads:
+            read_a, read_b, olen, contig = self.get_max_overlaps(reads)
+            is_rev = False
+            if not read_b:
+                seq = Seq(read_a)
+                reads.remove(read_a)
+                read_a = seq.reverse_complement()
+                reads.insert(0, read_a)
+                read_a, read_b, olen, contig = self.get_max_overlaps(reads)
+
+            reads.remove(read_a)
+            if not read_b:
+                contigs.append(read_a)
+            else:
+                reads.remove(read_b)
+                reads.append(contig)
+            if not reads:
+                break
+ 
+        return contigs
+
 
 class Node():
   '''
