@@ -17,7 +17,7 @@ def get_sample_name_from_bam(bam: str) -> str:
 
 def reverse_complement(dna_sequence):
     # Define the complement mapping
-    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A'}
+    complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N': 'N'}
 
     # Generate the complement sequence
     complement_sequence = "".join(complement[base] for base in dna_sequence)
