@@ -11,6 +11,8 @@ class VcfWriter {
         ~VcfWriter();
         void writeHeader();
         void writeVariant(const variant_t& var);
+        void writeVariants(const std::vector<variant_t>& variants);
+
     private:
         std::ofstream vcfFile;
         std::string sampleName;

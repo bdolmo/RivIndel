@@ -5,6 +5,22 @@
 #include <sstream>
 
 
+struct VariantHash {
+    std::size_t operator()(const std::tuple<std::string, long, std::string, std::string>& k) const {
+        return std::hash<std::string>()(std::get<0>(k)) ^ std::hash<long>()(std::get<1>(k)) ^ std::hash<std::string>()(std::get<2>(k)) ^ std::hash<std::string>()(std::get<3>(k));
+    }
+};
+
+
+// Comparator function to sort variants by chromosomal position
+bool compareVariants(const variant_t& a, const variant_t& b) {
+    if (a.chr == b.chr) {
+        return a.pos < b.pos;
+    }
+    return a.chr < b.chr;
+}
+
+
 VcfWriter::VcfWriter(const std::string& vcfFilename, const std::string& bamFilename)
     : samFilePtr(nullptr), bamHeader(nullptr) {
     vcfFile.open(vcfFilename);
@@ -94,7 +110,6 @@ void VcfWriter::writeHeader() {
 }
 
 void VcfWriter::writeVariant(const variant_t& var) {
-
     vcfFile << var.chr << "\t"
             << var.pos<< "\t"
             << ".\t"  // ID 
@@ -123,3 +138,49 @@ void VcfWriter::writeVariant(const variant_t& var) {
             << "./." << ":" << var.alleleDepth << ":" << var.totalDepth
             << "\n"; 
 }
+
+
+void VcfWriter::writeVariants(const std::vector<variant_t>& variants) {
+    // Map to store unique variants
+    std::unordered_map<std::tuple<std::string, long, std::string, std::string>, variant_t, VariantHash> variantMap;
+
+    for (const auto& var : variants) {
+        auto key = std::make_tuple(var.chr, var.pos, var.ref, var.alt);
+
+        if (variantMap.find(key) == variantMap.end()) {
+            // Insert a new variant
+            variantMap[key] = var;
+        } else {
+            // Update the existing variant
+            variant_t& existingVar = variantMap[key];
+            existingVar.readSupport += var.readSupport;
+            existingVar.plusStrand += var.plusStrand;
+            existingVar.minusStrand += var.minusStrand;
+            existingVar.totalDepth += var.totalDepth;
+
+            // Recalculate AF
+            existingVar.alleleFrequency = static_cast<float>(existingVar.readSupport) / existingVar.totalDepth;
+        }
+    }
+
+    // Extract variants from the map into a vector
+    std::vector<variant_t> uniqueVariants;
+    for (const auto& pair : variantMap) {
+        uniqueVariants.push_back(pair.second);
+    }
+
+    // Sort the vector by chromosomal position
+    std::sort(uniqueVariants.begin(), uniqueVariants.end(), compareVariants);
+
+    // Write the sorted variants to the VCF file
+    for (const auto& var : uniqueVariants) {
+        writeVariant(var);
+    }
+}
+
+
+// void VcfWriter::writeVariants(const std::vector<variant_t>& variants) {
+//     for (const auto& var : variants) {
+//         writeVariant(var);
+//     }
+// }
