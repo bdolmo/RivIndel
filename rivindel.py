@@ -10,7 +10,30 @@ def run_rivindel(args):
     
     # Construct the path to the binary relative to the script's directory
     binary_path = os.path.join(script_dir, 'src', 'rivindel')
-    
+   
+    regions_bed = "."
+
+    # bed file to exclude difficult regions
+    exclude_bed = "."
+    if not args.bed:
+        if args.genome_version == "hg19":
+            regions_bed = os.path.join(script_dir, "annotation/HG001_GRCh37_1_22_v4.2.1_benchmark.bed")
+            exclude_bed = os.path.join(script_dir, "annotation/blacklist.hg19.bed")
+        else:
+            regions_bed = os.path.join(script_dir, "annotation/HG001_GRCh38_1_22_v4.2.1_benchmark.bed")
+            exclude_bed = os.path.join(script_dir, "annotation/blacklist.hg38.bed")
+    else:
+        regions_bed = args.bed
+
+    if args.genome_version == "hg19":
+        exclude_bed = os.path.join(script_dir, "annotation/blacklist.hg19.bed")
+    else:
+        exclude_bed = os.path.join(script_dir, "annotation/blacklist.hg38.bed")
+
+    contigs_out = ""
+    if args.contigs_out:
+        contigs_out = "--contigs-out"
+
     # Construct the command
     command = [
         binary_path,
@@ -18,13 +41,19 @@ def run_rivindel(args):
         '--threads', str(args.threads),
         '--ref', args.ref,
         '--vcf', args.vcf,
-        '--bed', args.bed
+        '--bed', regions_bed,
+        '--exclude-bed', exclude_bed
     ]
+    if contigs_out:
+        command.append(contigs_out)
+    print(command)
+
+    command_str = " ".join(command)
+    print(command_str)
+
     
-    # Execute the command
     try:
-        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        print("Command output:", result.stdout.decode())
+        result = subprocess.run(command, check=True, stdout=None, stderr=subprocess.PIPE)
         print("Command error:", result.stderr.decode())
     except subprocess.CalledProcessError as e:
         print(f"Error executing command: {e}")
@@ -70,6 +99,9 @@ def main():
     parser.add_argument('--ref', required=True, help='Path to the reference fasta file')
     parser.add_argument('--vcf', required=True, help='Path to the output VCF file')
     parser.add_argument('--bed', help='Path to the BED file')
+    parser.add_argument('--contigs-out',  action='store_true', help='Write contigs generated at each locus')
+    # parser.add_argument('--chromosomes', required=True, help='Chromosomes to be processed')
+    parser.add_argument('--genome-version', choices=['hg19', 'hg38'], default='hg19', required=True, help='Genome version (hg19 or hg38)')
     parser.add_argument('--no-norm-vcf', action='store_false', dest='norm_vcf', help='Skip normalization of the VCF file')
     parser.add_argument('--force', action='store_true', help='Force execution of the RivIndel binary')
     
@@ -78,10 +110,9 @@ def main():
     
     # Check if the output VCF exists and is not empty, or if force is specified
     if args.force or not os.path.exists(args.vcf) or is_file_empty(args.vcf):
-        pass
-        # run_rivindel(args)
+        run_rivindel(args)
     else:
-        print(f"Skipping RivIndel execution as the output VCF file {args.vcf} aleady exists")
+        print(f"Skipping RivIndel execution as the output VCF file {args.vcf} already exists")
     
     # Normalize the VCF if --no-norm-vcf is not provided
     if args.norm_vcf:

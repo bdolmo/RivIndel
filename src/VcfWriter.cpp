@@ -91,11 +91,16 @@ void VcfWriter::writeHeader() {
     vcfFile << "##INFO=<ID=FWD,Number=1,Type=Integer,Description=\"Forward strand supporting reads\">"<< "\n";
     vcfFile << "##INFO=<ID=REV,Number=1,Type=Integer,Description=\"Reverse strand supporting reads\">"<< "\n";
     vcfFile << "##INFO=<ID=SB,Number=1,Type=Float,Description=\"Strand bias (0 to 1)\">"<< "\n";
+    
     vcfFile << "##INFO=<ID=KDIV_CONTIG,Number=1,Type=Float,Description=\"k-mer diversity of the contig\">"<< "\n";
     vcfFile << "##INFO=<ID=KDIV_5Flank,Number=1,Type=Float,Description=\"k-mer diversity of the 5' Upstream sequence\">"<< "\n";   
     vcfFile << "##INFO=<ID=KDIV_3Flank,Number=1,Type=Float,Description=\"k-mer diversity of the 3' Downstream sequence\">"<< "\n";
     vcfFile << "##INFO=<ID=MQ,Number=1,Type=Float,Description=\"RMS Mapping Quality\">"<< "\n";   
     vcfFile << "##INFO=<ID=MBQ,Number=1,Type=Float,Description=\"Mean Base Quality\">"<< "\n";
+    vcfFile << "##INFO=<ID=ERR,Number=1,Type=Float,Description=\"Error rate of the region\">"<< "\n";
+    vcfFile << "##INFO=<ID=CHIMR,Number=1,Type=Float,Description=\"Chimeric-read rate of the region\">"<< "\n";
+    vcfFile << "##INFO=<ID=SCR,Number=1,Type=Float,Description=\"Soft-clipped rate of the region\">"<< "\n";
+
     vcfFile << "##INFO=<ID=GC,Number=1,Type=Float,Description=\"GC-content of the contig\">"<< "\n";
     vcfFile << "##INFO=<ID=HOML,Number=1,Type=Integer,Description=\"Longest homopolymer run\">"<< "\n";   
     vcfFile << "##INFO=<ID=HOMN,Number=1,Type=Integer,Description=\"Number of homopolymers\">"<< "\n";   
@@ -128,6 +133,10 @@ void VcfWriter::writeVariant(const variant_t& var) {
             << ";KDIV_3Flank=" << var.flankingKmerDiversityDownstream
             << ";MQ=" << var.mapQual
             << ";MBQ=" << var.meanBaseQuality
+            << ";ERR=" << var.errorRate
+            << ";CHIMR=" << var.chimericRate
+            << ";SCR=" << var.softClippedRate
+
             << ";GC=" << var.gcContent
             << ";HOML=" << var.longestHomopolymerRun
             << ";HOMN=" << var.numberOfHomopolymerRuns
@@ -156,7 +165,7 @@ void VcfWriter::writeVariants(const std::vector<variant_t>& variants) {
             existingVar.readSupport += var.readSupport;
             existingVar.plusStrand += var.plusStrand;
             existingVar.minusStrand += var.minusStrand;
-            existingVar.totalDepth += var.totalDepth;
+            // existingVar.totalDepth += var.totalDepth;
 
             // Recalculate AF
             existingVar.alleleFrequency = static_cast<float>(existingVar.readSupport) / existingVar.totalDepth;

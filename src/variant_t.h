@@ -21,6 +21,9 @@ struct variant_t {
     float flankingKmerDiversityUpstream; // New member for upstream k-mer diversity
     float flankingKmerDiversityDownstream; // New member for downstream k-mer diversity
     float gcContent; // New member to store GC content
+    double errorRate;
+    double chimericRate;
+    double softClippedRate;
 
     int longestHomopolymerRun; // New member for the longest homopolymer run
     int numberOfHomopolymerRuns; // New member for the number of homopolymer run

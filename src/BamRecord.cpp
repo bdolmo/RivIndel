@@ -75,6 +75,16 @@ BamRecord::BamRecord(bam1_t *b, bam_hdr_t *h) : b_(b), h_(h) {
             default: _seq += '?'; break; // Just in case there is an unknown base
         }
     }
+
+    // Set the quality
+    uint8_t* _qual = bam_get_qual(b);
+
+    // std::string _qualString;
+    _qualString.reserve(len);
+    for (int i = 0; i < len; ++i) {
+        // Convert the Phred quality score to the ASCII representation (Phred+33)
+        _qualString.push_back(_qual[i]);
+    }
 }
 
 std::vector<uint32_t> BamRecord::getCigarVector() const {
@@ -133,9 +143,9 @@ bam1_t* BamRecord::ToBam1_t() const {
 
     // return b_;
 
-    bam1_t* b = bam_init1();
+    bam1_t* b_new = bam_init1();
 
-    if (!b) throw std::runtime_error("Failed to allocate bam1_t structure");
+    if (!b_new) throw std::runtime_error("Failed to allocate bam1_t structure");
 
     // Convert the CIGAR string to a vector of uint32_t
     std::vector<uint32_t> cigarVector = getCigarVector();
@@ -148,31 +158,31 @@ bam1_t* BamRecord::ToBam1_t() const {
     size_t total_data_size = qname_len + cigar_bytes + seq_len + qual_len;
 
     // Ensure space for all data components is allocated
-    if (b->m_data < total_data_size) {
-        b->data = (uint8_t*)realloc(b->data, total_data_size);
-        if (!b->data) {
-            bam_destroy1(b); // Free memory if reallocation failed
+    if (b_new->m_data < total_data_size) {
+        b_new->data = (uint8_t*)realloc(b_new->data, total_data_size);
+        if (!b_new->data) {
+            bam_destroy1(b_new); // Free memory if reallocation failed
             throw std::runtime_error("Failed to reallocate memory for bam1_t structure");
         }
-        b->m_data = total_data_size;
+        b_new->m_data = total_data_size;
     }
 
     // Set basic fields from BamRecord to bam1_t
-    b->core.tid = _chrID;
-    b->core.pos = _position;
-    b->core.qual = _mapQual;
-    b->core.mtid = _chrMateID;
-    b->core.l_qseq = _seq.length();
-    b->core.n_cigar = cigarVector.size();
-    b->core.flag = _flag;
-    b->l_data = total_data_size;
-    b->core.isize = _insertSize;
-    b->core.mpos = _matePos;
-    b->core.l_qname = qname_len;
+    b_new->core.tid = _chrID;
+    b_new->core.pos = _position;
+    b_new->core.qual = _mapQual;
+    b_new->core.mtid = _chrMateID;
+    b_new->core.l_qseq = _seq.length();
+    b_new->core.n_cigar = cigarVector.size();
+    b_new->core.flag = _flag;
+    b_new->l_data = total_data_size;
+    b_new->core.isize = _insertSize;
+    b_new->core.mpos = _matePos;
+    b_new->core.l_qname = qname_len;
 
     if (!_mdString.empty()) {
         // Append the MD tag as a null-terminated string
-        if (bam_aux_append(b, "MD", 'Z', _mdString.length() + 1, 
+        if (bam_aux_append(b_new, "MD", 'Z', _mdString.length() + 1, 
                         reinterpret_cast<const uint8_t*>(_mdString.c_str())) < 0) {
             throw std::runtime_error("Failed to append MD tag to bam1_t structure");
         }
@@ -180,32 +190,33 @@ bam1_t* BamRecord::ToBam1_t() const {
 
     // Set the query name (QNAME)
     if (qname_len > 0) {
-        std::memcpy(b->data, _qname.c_str(), qname_len);
+        std::memcpy(b_new->data, _qname.c_str(), qname_len);
     }
 
     // Set the CIGAR operations
-    uint32_t* cigar_ptr = bam_get_cigar(b);
+    uint32_t* cigar_ptr = bam_get_cigar(b_new);
     for (size_t i = 0; i < cigarVector.size(); ++i) {
         cigar_ptr[i] = cigarVector[i];
     }
 
     // Set the sequence
-    uint8_t* seq = bam_get_seq(b);
+    uint8_t* seq = bam_get_seq(b_new);
     for (size_t i = 0; i < _seq.length(); ++i) {
         seq[i >> 1] = (i & 1) ? (seq[i >> 1] | base2val(_seq[i])) : (base2val(_seq[i]) << 4);
     }
 
-    // Set the quality
-    uint8_t* qual = bam_get_qual(b);
-    std::fill_n(qual, qual_len, 0xFF); // Fill with default quality if none provided
-    if (!_qual.empty()) {
-        for (size_t i = 0; i < qual_len; ++i) {
-            qual[i] = static_cast<uint8_t>(_qual[i] - 33);
-        }
+    // // Set the quality
+    uint8_t* quality = bam_get_qual(b_new);
+    for (size_t i = 0; i < qual_len; ++i) {
+        // quality[i] = quality_test[i];
+        quality[i] =  _qualString[i];
     }
 
-    // Return the filled bam1_t structure
-    return b;
+    // free(q);
+    memcpy(bam_get_qual(b_new), quality, qual_len); // Copy converted quality scores back into the BAM structure
+
+
+    return b_new;
 }
 
 void BamRecord::SetPosition(int64_t newPos) {
@@ -282,9 +293,15 @@ void BamRecord::UpdateSeq(const std::string& seq, const std::string& cigar) {
         cigar_ptr[i] = cigarVector[i];
     }
 
-    // add in a NULL qual
-    uint8_t* s = bam_get_qual(b_);
-    s[0] = 0xff;
+    uint8_t* quality = bam_get_qual(b_);
+
+    for (size_t i = 0; i < slen; ++i) {
+        quality[i] = _qualString[i];
+    }
+
+    // free(q);
+    memcpy(bam_get_qual(b_), quality, slen); // Copy converted quality scores back into the BAM structure
+
 
     // add the aux data
     uint8_t* t = bam_get_aux(b_);
@@ -339,9 +356,10 @@ void BamRecord::SetQualities(const std::string& n, int offset) {
 
     // Convert quality string to numeric values
     char * q = strdup(n.c_str());
+    std::cout << n << std::endl;
     if (!q) throw std::runtime_error("Failed to duplicate quality string");
     for (size_t i = 0; i < n.length(); ++i) {
-        q[i] -= offset; // Adjust quality scores based on the offset (typically 33 or 64)
+        q[i]; // Adjust quality scores based on the offset (typically 33 or 64)
     }
     memcpy(bam_get_qual(b_), q, n.length()); // Copy converted quality scores back into the BAM structure
     free(q); // Free the duplicated quality string
@@ -398,21 +416,39 @@ std::string BamRecord::Qname() const {
 }
 
 
+// uint64_t BamRecord::GetID() const {
+//     return _id;
+// }
+
+
 double BamRecord::MeanBaseQuality() const {
-    uint8_t* qual = bam_get_qual(b_);
-    int len = b_->core.l_qseq;
-    if (len == 0) {
-        return 0.0;
-    }
-    int totalQuality = 0;
-    int validBases = 0;
-    for (int i = 0; i < len; ++i) {
-        if (qual[i] != 255) {
-            totalQuality += static_cast<uint8_t>(qual[i] - 33);  // Assuming Phred+33 encoding
-            validBases++;
-        }
-    }
-    return validBases > 0 ? static_cast<double>(totalQuality) / validBases : 0.0;
+    // uint8_t* qual = bam_get_qual(b_);
+   
+    // int len = b_->core.l_qseq;
+    // if (len == 0) {
+    //     return 0.0;
+    // }
+    
+    // int totalQuality = 0;
+    // int validBases = 0;
+    // for (int i = 0; i < len; ++i) {
+    //     if (qual[i] != 255) {
+    //         totalQuality += static_cast<uint8_t>(qual[i] - 33);  // Assuming Phred+33 encoding
+    //         validBases++;
+    //     }
+    // }
+    // return validBases > 0 ? static_cast<double>(totalQuality) / validBases : 0.0;
+
+    if (b_->core.l_qseq <= 0)
+      return 0.0;
+
+    double s = 0;
+    uint8_t* p = bam_get_qual(b_);
+    for (int32_t i = 0; i < b_->core.l_qseq; ++i)
+      s += p[i];
+    return s / b_->core.l_qseq;
+
+
 }
 
 char BamRecord::GetStrand() const {

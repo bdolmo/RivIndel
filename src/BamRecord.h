@@ -19,6 +19,8 @@ class BamRecord {
         std::string Seq() const;
         std::string Qname() const;
         int64_t matePos() const;
+
+        char GetStrand() const;
         double MeanBaseQuality() const;
         // uint64_t GetID() const;
 
@@ -27,8 +29,6 @@ class BamRecord {
         void SetQname(const std::string& n);
         void SetQualities(const std::string& n, int offset = 33); // Defaulting offset to Phred+33
         void SetPosition(int64_t newPos);
-        char GetStrand() const;
-
         // void SetCigar(const std::vector<uint32_t>& newCigar);
         std::vector<uint32_t> getCigarVector() const;
 
@@ -47,6 +47,8 @@ class BamRecord {
         std::string _mdString;
         std::string _seq;
         std::string _qual;
+        std::string _qualString;
+
         int64_t _matePos;
         int _mapQual;
         int _insertSize;  // Stores the insert size (TLEN) of the record

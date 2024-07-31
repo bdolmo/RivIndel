@@ -27,6 +27,7 @@ int main(int argc, char *argv[]) {
     int maxSeparation = 5; 
     int minSupport = 3;
     int numThreads = 1;
+    bool contigsOut = false;
 
     // Basic command-line argument parsing
     for (int i = 1; i < argc; ++i) {
@@ -40,14 +41,15 @@ int main(int argc, char *argv[]) {
         else if (arg == "--bed" && i + 1 < argc) {
             targetsBed = argv[++i];
         }
-
         else if (arg == "--exclude-bed" && i + 1 < argc) {
             excludeBed = argv[++i];
         }
-
         else if (arg == "--vcf" && i + 1 < argc) {
             vcfOut = argv[++i];
-        } 
+        }
+        else if (arg == "--contigs-out" && i < argc) {
+            contigsOut = true;
+        }
         else if (arg == "--minOpSize" && i + 1 < argc) {
             std::istringstream(argv[++i]) >> minOpSize;
         } 
@@ -60,6 +62,8 @@ int main(int argc, char *argv[]) {
         else if (arg == "--threads" && i + 1 < argc) {
             std::istringstream(argv[++i]) >> numThreads;
         } 
+
+
         else {
             std::cerr << " ERROR: Unknown argument or missing value for: " << arg << std::endl;
             return 1;
@@ -117,6 +121,12 @@ int main(int argc, char *argv[]) {
         // Create temporary BAM file for this chromosome
         createTempBamFile(bamFile, chromosomeName, tempBamFile, targetsBed, excludeBed, minOpSize, maxSeparation, minSupport);
     }
+    std::string contigsOutFile;
+    if (contigsOut) {
+
+        contigsOutFile = bamFile + "." + "contigs.txt";
+        std::ofstream outFile(contigsOutFile);
+    }
 
     std::vector<variant_t> allVariants;
     for (const auto& chr : chromosomes) {
@@ -133,7 +143,8 @@ int main(int argc, char *argv[]) {
         std::cout << " INFO: Processing " << chromosomeName << std::endl;
 
         // Detect indels for this chromosome
-        std::vector<variant_t> complexVariants = DetectComplexIndels(clusteredReads, bamFile, refFasta, numThreads, chromosomeName);
+        std::vector<variant_t> complexVariants = DetectComplexIndels(clusteredReads, bamFile, refFasta, 
+            numThreads, chromosomeName, contigsOut, contigsOutFile);
 
         // Append variants for this chromosome to the total list
         allVariants.insert(allVariants.end(), complexVariants.begin(), complexVariants.end());

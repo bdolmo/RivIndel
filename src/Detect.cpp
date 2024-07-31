@@ -22,10 +22,73 @@
 #include <cmath> 
 #include <mutex>
 #include "ThreadSafeQueue.h"
-// #include "olc.cpp"
+#include <regex>
+
 #include "Assembler.h"
-// #include "vcake.cpp"
 #include <unordered_set>
+
+// Function to extract k-mers from a sequence
+std::vector<std::string> extractKmers(const std::string& sequence, int k) {
+    std::vector<std::string> kmers;
+    kmers.reserve(sequence.size() - k + 1);
+    for (size_t i = 0; i <= sequence.size() - k; ++i) {
+        kmers.emplace_back(sequence.substr(i, k));
+    }
+    return kmers;
+}
+
+// Function to count k-mer frequencies
+std::unordered_map<std::string, int> countKmerFrequencies(const std::vector<std::string>& sequences, int k) {
+    std::unordered_map<std::string, int> kmerCounts;
+    for (const auto& sequence : sequences) {
+        std::vector<std::string> kmers = extractKmers(sequence, k);
+        for (const auto& kmer : kmers) {
+            kmerCounts[kmer]++;
+        }
+    }
+    return kmerCounts;
+}
+
+// Function to identify and correct erroneous k-mers
+std::string correctSequence(const std::string& sequence, int k, const std::unordered_map<std::string, int>& kmerCounts, int threshold) {
+    std::string correctedSequence = sequence;
+    for (size_t i = 0; i <= sequence.length() - k; ++i) {
+        std::string kmer = sequence.substr(i, k);
+        if (kmerCounts.at(kmer) < threshold) {
+            std::string bestKmer = kmer;
+            int bestCount = 0;
+            for (size_t j = 0; j < k; ++j) {
+                std::string tempKmer = kmer;
+                for (char nucleotide : {'A', 'C', 'G', 'T'}) {
+                    tempKmer[j] = nucleotide;
+                    int tempCount = kmerCounts.count(tempKmer) ? kmerCounts.at(tempKmer) : 0;
+                    if (tempCount > bestCount) {
+                        bestCount = tempCount;
+                        bestKmer = tempKmer;
+                    }
+                }
+            }
+            for (size_t j = 0; j < k; ++j) {
+                correctedSequence[i + j] = bestKmer[j];
+            }
+        }
+    }
+    return correctedSequence;
+}
+
+// Main function to correct a vector of sequences
+std::vector<std::string> correctSequences(const std::vector<std::string>& sequences, int k, int threshold) {
+    std::vector<std::string> correctedSequences;
+    correctedSequences.reserve(sequences.size());
+    std::unordered_map<std::string, int> kmerCounts = countKmerFrequencies(sequences, k);
+    
+    for (const auto& sequence : sequences) {
+        correctedSequences.push_back(correctSequence(sequence, k, kmerCounts, threshold));
+    }
+    
+    return correctedSequences;
+}
+
 
 
 double ComputeStrandBias(int forwardStrandCount, int reverseStrandCount) {
@@ -36,11 +99,36 @@ double ComputeStrandBias(int forwardStrandCount, int reverseStrandCount) {
     return static_cast<double>(std::fabs(forwardStrandCount - reverseStrandCount)) / (forwardStrandCount + reverseStrandCount);
 }
 
+struct contig_t{
+    std::string seq;
+    std::string chr;
+    int start;
+    int end;
+    int readSupport;
+    int plusStrand;
+    int minusStrand;
+};
+
+struct Locus {
+    std::string chromosome;
+    int start;
+    int end;
+    std::vector<contig_t> contigs;
+};
+
+// struct Contig {
+//     std::string chromosome;
+//     int start;
+//     int end;
+//     int pos;
+//     std::string seq;
+//     std::string cigarExtended;
+// }
+
 struct MutationSegment {
     int start;
     int end;
 };
-
 
 std::pair<int, int> calculateDinucleotideMetrics(const std::string& sequence, int minLength = 4) {
     int longestRun = 0;
@@ -155,8 +243,6 @@ std::pair<float, float> getFlankingKmerDiversity(const std::string& chr, int pos
     return {upstreamDiversity, downstreamDiversity};
 }
 
-
-
 std::pair<int, std::string> alignReadToContig(const std::string& read, const std::string& contig) {
     EdlibAlignResult result = edlibAlign(read.c_str(), read.size(), contig.c_str(), contig.size(),
         edlibNewAlignConfig(-1, EDLIB_MODE_HW, EDLIB_TASK_DISTANCE, NULL, 0));
@@ -192,15 +278,7 @@ std::string reverseComplement(const std::string& dna) {
     return revComp;
 }
 
-struct contig_t{
-    std::string seq;
-    std::string chr;
-    int start;
-    int end;
-    int readSupport;
-    int plusStrand;
-    int minusStrand;
-};
+
 
 float calculateMean(const std::vector<int>& nums) {
     if (nums.empty()) {
@@ -249,18 +327,6 @@ void PopulateVCF(const std::vector<variant_t>& variants, const std::string& bamF
 }
 
 
-// void PopulateVCF(const std::vector<variant_t>& variants, const std::string& bamFile, const std::string& vcfFilename) {
-//     std::vector<variant_t> allVariants = variants;
-
-//     std::sort(allVariants.begin(), allVariants.end(), CompareVariants);
-
-//     VcfWriter writer(vcfFilename, bamFile);
-//     writer.writeHeader();
-//     for (const auto& var : allVariants) {
-//         writer.writeVariant(var);
-//     }
-// }
-
 std::vector<BamRecord> GetSoftClippedReads(BamReader& reader) {
     std::vector<BamRecord> softClippedReads;
     BamRecord record;
@@ -301,12 +367,93 @@ std::vector<BamRecord> GetSoftClippedReads(BamReader& reader) {
     return softClippedReads;
 }
 
+struct AlignmentStats {
+    double errorRate;
+    double chimericRate;
+    double softClippedRate;
+};
+
+// Function to calculate various alignment statistics
+AlignmentStats CalculateAlignmentStats(const std::string& bamFile, const std::string& chr, int position) {
+    int totalBases = 0;
+    int mismatches = 0;
+    int totalReads = 0;
+    int chimericReads = 0;
+    int softClippedReads = 0;
+    BamReader newreader(bamFile); 
+
+    std::string region = chr + ":" + std::to_string(position - 100) + "-" + std::to_string(position + 100);
+    newreader.SetRegion(region);
+    int maxReads = 500;
+    int count = 0;
+    BamRecord record;
+    while (newreader.GetNextRecord(record)) {
+        totalReads++;
+        std::string mdTag = record.MDtag();
+        totalBases += record.Seq().length();
+        count++;
+
+        // Check for chimeric reads (mapped to different chromosomes or far apart)
+        if (record.chrName() != record.chrMateName()) {
+            chimericReads++;
+        }
+
+        // Check for soft-clipped reads
+        std::string cigar = record.cigarString();
+        bool hasSoftClip = cigar.find('S') != std::string::npos;
+        if (hasSoftClip) {
+            softClippedReads++;
+        }
+
+        if (count > maxReads) {
+            break;
+        }
+
+        bool foundDel = false;
+        // Manually parse the MD tag to find mismatches
+        for (size_t i = 0; i < mdTag.size(); ++i) {
+            if (std::isdigit(mdTag[i])) {
+                if (foundDel) {
+                    foundDel = false;
+                }
+
+                // Skip the number of matched bases
+                while (i < mdTag.size() && std::isdigit(mdTag[i])) {
+                    ++i;
+                }
+                --i; // Correct the position after exiting the while loop
+            } else {
+                // Count mismatches (non-numeric parts of the MD tag)
+                if (mdTag[i] == '^') {
+                    foundDel = true;
+                    continue;
+                }
+                if (!foundDel && std::isalpha(mdTag[i])) {
+                    mismatches++;
+                }
+            }
+        }
+    }
+
+    AlignmentStats stats;
+    if (totalBases == 0) {
+        stats.errorRate = 0.0;
+    } else {
+        stats.errorRate = static_cast<double>(mismatches) / totalBases;
+    }
+    stats.chimericRate = static_cast<double>(chimericReads) / totalReads;
+
+    stats.softClippedRate = static_cast<double>(softClippedReads) / totalReads;
+
+    return stats;
+}
+
 
 int CalculateTotalDepth(const std::string& bamFile, const std::string& chr, int position) {
     int totalDepth = 0;
     BamReader newreader(bamFile); 
 
-    std::string region = chr + ":" + std::to_string(position) + "-" + std::to_string(position);
+    std::string region = chr + ":" + std::to_string(position+1) + "-" + std::to_string(position+1);
     newreader.SetRegion(region);
 
     BamRecord record;
@@ -418,12 +565,62 @@ std::unordered_map<std::string, int> parseFastaIndex(const std::string& fastaInd
 }
 
 
+std::vector<std::string> correctReads(std::vector<std::string>& reads) {
+    int n_seqs = reads.size();
+    bseq1_t *seqs = new bseq1_t[n_seqs]();
+
+    // Populate the bseq1_t array with the input reads
+    for (int i = 0; i < n_seqs; ++i) {
+        seqs[i].l_seq = reads[i].length();
+        seqs[i].seq = strdup(reads[i].c_str());
+
+        // Allocate and set quality scores (all set to 'I' which is ASCII 73)
+        seqs[i].qual = new char[reads[i].length() + 1];
+        memset(seqs[i].qual, 'I', reads[i].length());
+        seqs[i].qual[reads[i].length()] = '\0';
+    }
+
+    // Initialize default options
+    fml_opt_t opt;
+    fml_opt_init(&opt);
+
+    // Optionally, set custom parameters for error correction
+    // opt.ec_k = 11;        // Set k-mer length for error correction
+    // opt.min_asm_ovlp = 11; // Set minimum overlap length during assembly
+    // opt.min_merge_len = 11; // Set minimum length for merging overlaps
+
+    // Perform error correction
+    float kcov = fml_correct(&opt, n_seqs, seqs);
+
+    // Optional: adjust parameters based on corrected sequences
+    fml_opt_adjust(&opt, n_seqs, seqs);
+
+    // Collect corrected reads into a new vector
+    std::vector<std::string> correctedReads;
+    for (int i = 0; i < n_seqs; ++i) {
+        correctedReads.push_back(std::string(seqs[i].seq));
+    }
+
+    // Clean up
+    for (int i = 0; i < n_seqs; ++i) {
+        free(seqs[i].seq);
+        delete[] seqs[i].qual;
+    }
+    delete[] seqs;
+
+    return correctedReads;
+}
+
 
 std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clustered_aln_t>>& clusteredReads,
-    const std::string& bamFile, const std::string& refFasta, const int& threads, const std::string& chromosomeName) {
+    const std::string& bamFile, const std::string& refFasta, const int& threads, const std::string& chromosomeName, 
+    const bool contigsOut, const std::string& contigsOutFile) {
 
     BamReader reader(bamFile);
     ThreadSafeQueue<variant_t> uniqueVariants;
+
+
+    ThreadSafeQueue<MutationSegment> mutationSegmentsQueue;
 
 
     std::string fastaIdx = refFasta + ".fai";
@@ -433,7 +630,8 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
     #pragma omp parallel
     {
-        std::vector<variant_t> localVariants; 
+        std::vector<variant_t> localVariants;
+        std::vector<Locus> locusData;
 
         #pragma omp for schedule(dynamic, 1)
         for (size_t idx = 0; idx < clusteredReads.size(); ++idx) {
@@ -474,7 +672,12 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             RefFasta ref(refFasta);
             refStart = std::max(1L, refStart - 49);  // Adjust for 1-based indexing
             refEnd = std::min(static_cast<long>(chromosomeLength), refEnd + 50);
-            std::cout << chr << " " << refStart << " " << refEnd << std::endl;
+            // std::cout << chr << " " << refStart << " " << refEnd << std::endl;
+
+            Locus newLocus;
+            newLocus.chromosome = chr;
+            newLocus.start = refStart;
+            newLocus.end = refEnd;
 
             std::string regionalFasta = ref.fetchSequence(chr, refStart - 49, refEnd + 50);
             regionalFasta = to_uppercase(regionalFasta);
@@ -485,8 +688,12 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             int kSize = 31;
             int maxMismatches = 1;
             bool debug = false;
+            std::vector<std::string> corrReads = correctSequences(tmpReads, 21, 2);
+            // std::vector<std::string> corrReads = correctReads(tmpReads);
 
-            Assembler assembler(tmpReads, kSize, maxMismatches, debug);
+            Assembler assembler(corrReads, kSize, maxMismatches, debug);
+
+            // Assembler assembler(tmpReads, kSize, maxMismatches, debug);
             vector<string> contigs = assembler.ungappedGreedy();
 
             std::vector<contig_t> contigRecVector;
@@ -494,7 +701,10 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
             std::unordered_set<std::string> usedReads;
 
+
             for (const auto& contig : contigs) {
+                // std::cout << "CONTIG " << contig << std::endl;
+
                 std::string revContig = reverseComplement(contig);
 
                 contig_t contigRecord;
@@ -508,17 +718,18 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
                 int minusStrand = 0;
                 int plusStrand = 0;
-
                 
                 for (const auto& read : reads) {
-
                     if (usedReads.find(read.read.Seq()) != usedReads.end()) {
                         // Skip this read if it has already been used
                         continue;
                     }
 
                     auto [editDistance, cigar] = alignReadToContig(read.read.Seq(), contig);
-                    if (editDistance >= 0 && editDistance < 5) {
+
+                    int maxExitDistance = read.read.Seq().length()*0.15;
+
+                    if (editDistance >= 0 && editDistance <= 10) {
                         readSupport++;
                         isGood = true;
                         mapQualVector.push_back(read.read.mapQual());
@@ -527,16 +738,15 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         contigRecord.seq = contig;
 
                         if (read.strand == '+') {
-                            plusStrand++;
+                           plusStrand++;
                         } else {
-                            minusStrand++;
+                           minusStrand++;
                         }
-                         usedReads.insert(read.read.Seq());
-
+                        usedReads.insert(read.read.Seq());
                     } 
                     else {
                         std::tie(editDistance, cigar) = alignReadToContig(read.read.Seq(), revContig);
-                        if (editDistance >= 0 && editDistance < 5) {
+                        if (editDistance >= 0 && editDistance <= 10) {
                             readSupport++;
                             isGood = true;
                             mapQualVector.push_back(read.read.mapQual());
@@ -563,6 +773,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             }
 
             for (auto& contig : contigRecVector) {
+                
                 int match = 2;
                 int mismatch = -6;
                 int gap_open = -18;
@@ -575,41 +786,19 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 std::string alnCigar = aln.cigarExtended;
                 int numOperations = aln.non_match_operations;
 
-                if (numOperations > 3) {
+                // std::cout << alnCigar  << " " << numOperations << std::endl;
+
+
+                if (numOperations > 10) {
                     match_special = -10;
                     aln = affine_semiglobal(regionalFasta, contig.seq, match, mismatch, gap_open, gap_extend, match_special, mismatch_special);
                     alnCigar = aln.cigarExtended;
                     numOperations = aln.non_match_operations;
                 }
 
-                int leadingMatches = 0;
-                int trailingMatches = 0;
-                bool inLeadingSegment = true;
-
-                for (char op : alnCigar) {
-                    if (op == 'M') {
-                        if (inLeadingSegment) {
-                            leadingMatches++;
-                        } else {
-                            trailingMatches++;
-                        }
-                    } else {
-                        inLeadingSegment = false;
-                    }
-                }
-
-                if (leadingMatches < 20 || trailingMatches < 20) {
-                    continue;
-                }
-
-                std::string leadingSeq = aln.seq2_align.substr(0, 20);
-                std::string trailingSeq = aln.seq2_align.substr(aln.seq2_align.length() - 20);
-
-                if (kmerIndex[leadingSeq].size() > 1 || kmerIndex[trailingSeq].size() > 1) {
-                    continue;
-                }
-
                 std::vector<MutationSegment> mutationSegments;
+
+                // std::vector<MutationSegment> localMutationSegments;
                 bool flag = false;
                 int start = -1;
                 int end = -1;
@@ -619,8 +808,10 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 char prevOp;
 
                 int mod = 0;
+
                 for (size_t i = 0; i < aln.cigarExtended.length(); ++i) {
                     char op = aln.cigarExtended[i];
+                    // std::cout << "operation " << op << std::endl;
 
                     if (!flag && (op == 'X' || op == 'D' || op == 'I')) {
                         flag = true;
@@ -630,6 +821,8 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         prevOp = op;
                         mod = 0;
                     } else if (flag) {
+                        // std::cout << "flag in " << i << " " << end  << " " << std::endl;
+
                         if (op == 'X' || op == 'D' || op == 'I') {
                             if (i - end <= maxDistance) {
                                 end = i;
@@ -637,23 +830,28 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                             } else {
                                 if (numOp > 1 || (numOp == 1 && prevOp != 'X')) {
                                     mutationSegments.push_back({start, end});
-                                    start = i;
-                                    end = i;
                                 }
+                                start = i - mod;
+                                end = i - mod;
                                 numOp = 1;
-                                flag = false;
-                                mod = 1;
+                                flag = true;
+                                prevOp = op;
+                                mod = 0;
                             }
                             numOp++;
                         } else {
+                            if (numOp > 1 || (numOp == 1 && prevOp != 'X')) {
+                                mutationSegments.push_back({start, end});
+                            }
                             flag = false;
                         }
                     }
                 }
 
-                if (numOp > 1 || (numOp == 1 && aln.cigarExtended[start] != 'X')) {
+                if (flag && (numOp > 1 || (numOp == 1 && prevOp != 'X'))) {
                     mutationSegments.push_back({start, end});
                 }
+
 
                 for (const auto& seg : mutationSegments) {
                     int newstart = seg.start;
@@ -661,7 +859,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     std::string refAllele;
                     std::string altAllele;
 
-                    if (newstart < 0 || numOperations > 4 || ((newend - newstart) < 2 && numOperations > 3)) {
+                    if (newstart < 0 || numOperations > 6 || ((newend - newstart) < 2 && numOperations > 6)) {
                         continue;
                     }
 
@@ -674,13 +872,13 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         char alt_ntd = aln.seq2_align[j];
                         if (op != 'D' && op != 'I') {
                             refAllele += ref_ntd;
-
                             if (alt_ntd != '-') {
                                 altAllele += alt_ntd;
                             }
                             i++;
                             j++;
-                        } else {
+                        } 
+                        else {
                             if (op == 'D') {
                                 refAllele += ref_ntd;
                                 i++;
@@ -693,6 +891,10 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         }
                     }
 
+                    if (refAllele == altAllele) {
+                        continue;
+                    }
+
                     variant_t variant;
                     long newPos = aln.query_start + refStart + newstart - 49;
 
@@ -701,6 +903,13 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     variant.ref = refAllele;
                     variant.alt = altAllele;
                     variant.readSupport = contig.readSupport;
+
+                    AlignmentStats alnStats = CalculateAlignmentStats(bamFile, variant.chr, variant.pos);
+
+                    variant.errorRate = alnStats.errorRate;
+                    variant.chimericRate = alnStats.chimericRate;
+                    variant.softClippedRate = alnStats.softClippedRate;
+
                     variant.mapQual = calculateMean(mapQualVector);
                     variant.totalDepth = CalculateTotalDepth(bamFile, variant.chr, variant.pos);
                     int refDepth = variant.totalDepth - variant.readSupport;
@@ -729,6 +938,11 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     uniqueVariants.push(variant);
                 }
             }
+
+            // if (contigsOut) {
+            //     locusData.push_back(newLocus);
+            // }
+           
         }
     }
 
