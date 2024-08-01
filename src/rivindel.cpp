@@ -109,7 +109,7 @@ int main(int argc, char *argv[]) {
     }
 
 
-    int testThreads = 2;
+    int testThreads = 1;
     #pragma omp parallel for num_threads(testThreads) schedule(dynamic)
     for (size_t i = 0; i < chromosomes.size(); ++i) {
         const auto& chromosomeName = chromosomes[i];
