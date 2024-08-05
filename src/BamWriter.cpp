@@ -22,6 +22,21 @@ BamWriter::~BamWriter() {
     if (hdr_) bam_hdr_destroy(hdr_);                
 }
 
+
+bool BamWriter::Close() {
+    if (out_) {
+        if (sam_close(out_) < 0) {
+            return false;
+        }
+        out_ = nullptr;
+    }
+    if (hdr_) {
+        bam_hdr_destroy(hdr_);
+        hdr_ = nullptr;
+    }
+    return true;
+}
+
 void BamWriter::WriteRecord(const BamRecord& record) {
     if (!out_) {
         throw std::runtime_error("BAM file is not open for writing");
@@ -49,6 +64,10 @@ void BamWriter::WriteRawRecord(const BamRecord& record) {
     if (sam_write1(out_, hdr_, b) < 0) {
         throw std::runtime_error("Could not write record to BAM file");
     }
+
+    // if (sam_flush(out_) < 0) {
+    //     throw std::runtime_error("Could not flush BAM file");
+    // }
 
     // bam_destroy1(b); // Clean up the bam1_t struct
 }

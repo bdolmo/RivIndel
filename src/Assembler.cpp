@@ -78,6 +78,10 @@ std::multimap<std::string, std::string> Assembler::createReadTable() {
 	std::multimap<std::string, std::string> readHash;
 
 	for (auto read : reads) {
+		if (read.length() <= kSize) {
+			continue;
+		}
+
 		readHash.insert(std::pair<std::string, std::string>(read, read));
 	}
 	return readHash;
@@ -108,6 +112,10 @@ std::unordered_multimap<std::string, Contig> Assembler::createPrefixTable() {
 	std::unordered_multimap<std::string, Contig> prefixHash;
 
 	for (auto contig : ContigList) {
+
+		if (contig.seq.length() <= kSize) {
+			continue;
+		}
 
 		// Equal than SSAKE, VCAKE, popuating the first 11 bases on a hash table with the value being the full sequence
 		std::string prefix = contig.seq.substr(0, kSize);
@@ -235,6 +243,10 @@ std::pair<int, Contig> Assembler::Extend( std::unordered_multimap<std::string, C
 	std::string SEQ = read.seq;
 
 	Contig outContig;
+
+	if (SEQ == "") {
+		return std::make_pair(notExtended, outContig);
+	}
 
 	if (SEQ.length() < kSize) {
 		ContigList.erase(std::remove(ContigList.begin(), ContigList.end(), read), ContigList.end());

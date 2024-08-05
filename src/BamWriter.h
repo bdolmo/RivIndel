@@ -12,6 +12,7 @@ public:
 
     void WriteRecord(const BamRecord& record);
     void WriteRawRecord(const BamRecord& record);
+    bool Close(); // Add the Close function
     void CreateIndex();
 
 private:

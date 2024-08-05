@@ -689,11 +689,12 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             int maxMismatches = 1;
             bool debug = false;
             std::vector<std::string> corrReads = correctSequences(tmpReads, 21, 2);
-            // std::vector<std::string> corrReads = correctReads(tmpReads);
+
 
             Assembler assembler(corrReads, kSize, maxMismatches, debug);
 
             // Assembler assembler(tmpReads, kSize, maxMismatches, debug);
+
             vector<string> contigs = assembler.ungappedGreedy();
 
             std::vector<contig_t> contigRecVector;
@@ -703,7 +704,6 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
 
             for (const auto& contig : contigs) {
-                // std::cout << "CONTIG " << contig << std::endl;
 
                 std::string revContig = reverseComplement(contig);
 

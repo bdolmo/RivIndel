@@ -320,7 +320,11 @@ void createTempBamFile(const std::string& bamFile, const std::string& chromosome
             tempWriter.WriteRawRecord(record); // Write the valid read to the temporary BAM file
         }
     }
+    tempWriter.Close();
+
     tempWriter.CreateIndex();
+
+    // tempWriter.CreateIndex();
 }
 
 std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
