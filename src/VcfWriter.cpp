@@ -85,6 +85,9 @@ void VcfWriter::writeHeader() {
                     << ",length=" << bamHeader->target_len[i] << ">\n";
         }
     }
+    
+    vcfFile << "##INFO=<ID=STATUS,Number=A,Type=String,Description=\"Germline or Somatic classification\">\n";
+    // vcfFile << "##INFO=<ID=PVAL,Number=A,Type=Float,Description=\"Fisher'sexact test p-value for paired analysis\">\n";
     vcfFile << "##INFO=<ID=AC,Number=A,Type=Integer,Description=\"Allele count in genotypes, for each ALT allele, in the same order as listed\">\n";
     vcfFile << "##INFO=<ID=AF,Number=A,Type=Float,Description=\"Allele Frequency, for each ALT allele, in the same order as listed\">\n";
     vcfFile << "##INFO=<ID=DP,Number=1,Type=Integer,Description=\"Approximate read depth; some reads may have been filtered\">\n";
@@ -122,7 +125,9 @@ void VcfWriter::writeVariant(const variant_t& var) {
             << var.alt << "\t"
             << ".\t"  // QUAL
             << ".\t"
-            << "AC=" << var.readSupport 
+            << "STATUS=" << var.status
+            // << ";PVAL=" << var.pValue
+            << ";AC=" << var.readSupport 
             << ";AF=" << var.alleleFrequency 
             << ";DP=" << var.totalDepth
             << ";FWD=" << var.plusStrand

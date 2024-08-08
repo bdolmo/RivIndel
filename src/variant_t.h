@@ -34,6 +34,11 @@ struct variant_t {
     int minusStrand;
     double strandBias;
     double meanBaseQuality;
+    int fwdCounts;
+    int revCounts;
+
+    std::string status; // "SOMATIC" or "GERMLINE"
+
 };
 
 #endif // VARIANT_T_H

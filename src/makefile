@@ -11,7 +11,7 @@ INCLUDES = -I$(HTSLIB_DIR) -I$(FERMILIB_DIR) -I$(EDLIB_DIR) -I$(SSW_DIR) -fopenm
 LIBS = -L$(HTSLIB_DIR) -L$(FERMILIB_DIR) -lfml -lz -lbz2 -llzma -lpthread -lhts -fopenmp
 
 # Source files
-SRCS = rivindel.cpp BamReader.cpp BamRecord.cpp BamWriter.cpp RefFasta.cpp VcfWriter.cpp Assembler.cpp ../edlib/src/edlib.cpp $(SSW_DIR)/ssw.cpp $(SSW_DIR)/ssw_cpp.cpp
+SRCS = rivindel.cpp BamReader.cpp BamRecord.cpp BamWriter.cpp RefFasta.cpp VcfReader.cpp VcfWriter.cpp Assembler.cpp ../edlib/src/edlib.cpp $(SSW_DIR)/ssw.cpp $(SSW_DIR)/ssw_cpp.cpp
 OBJS = $(SRCS:.cpp=.o)
 DEPS = $(OBJS:.o=.d)
 OBJS += $(SSW_DIR)/ssw_cpp.o

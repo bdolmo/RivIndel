@@ -23,9 +23,25 @@
 #include <mutex>
 #include "ThreadSafeQueue.h"
 #include <regex>
-
 #include "Assembler.h"
 #include <unordered_set>
+
+
+
+// Function to check for clusters of different operations within 10 positions
+bool hasOpCluster(const std::string& cigar, const int& numOp) {
+    // Sliding window to store operations
+    for (size_t i = 0; i <= cigar.size() - 10; ++i) {
+        std::unordered_set<char> uniqueOps;
+        for (size_t j = i; j < i + 10; ++j) {
+            uniqueOps.insert(cigar[j]);
+        }
+        if (uniqueOps.size() >= 3) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // Function to extract k-mers from a sequence
 std::vector<std::string> extractKmers(const std::string& sequence, int k) {
@@ -254,6 +270,22 @@ std::pair<int, std::string> alignReadToContig(const std::string& read, const std
         char* cigarC = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
         cigar = std::string(cigarC);
         free(cigarC);
+    }
+
+
+    // Print out the offsets and the CIGAR string
+    if (result.status == EDLIB_STATUS_OK) {
+        // std::cout << "Read Start: " << result.startLocations[0] << std::endl;
+        // std::cout << "Read End: " << result.endLocations[0] << std::endl;
+        // std::cout << "Contig Start: " << result.startLocations[1] << std::endl;
+        // std::cout << "Contig End: " << result.endLocations[1] << std::endl;
+        // std::cout << read << " " << contig << std::endl;
+    // printf("%d\n", result.editDistance);
+    // printf("%d\n", result.alignmentLength);
+    // printf("%d\n", result.endLocations[0]);
+        // std::cout << result.alignmentLength << std::endl;
+
+        // std::cout << "Editdistance: " << editDistance << " CIGAR String: " << cigar << " " << result.alignment << std::endl << std::endl;
     }
 
     edlibFreeAlignResult(result);
@@ -515,14 +547,16 @@ std::vector<std::string> deriveConsensusSequences(const std::vector<clustered_al
             // Ensure depth is at least 2 before appending to consensus
             if (depth >= 5) {
                 currentContig += consensus_base;  // Append consensus base to current contig
-            } else {
+            } 
+            else {
                 // No coverage at this position, start a new contig if current one is not empty
                 if (!currentContig.empty()) {
                     contigs.push_back(currentContig);
                     currentContig.clear();
                 }
             }
-        } else {
+        } 
+        else {
             // No reads covering this position, start a new contig
             if (!currentContig.empty()) {
                 contigs.push_back(currentContig);
@@ -619,9 +653,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
     BamReader reader(bamFile);
     ThreadSafeQueue<variant_t> uniqueVariants;
 
-
     ThreadSafeQueue<MutationSegment> mutationSegmentsQueue;
-
 
     std::string fastaIdx = refFasta + ".fai";
     auto chromosomeLengths = parseFastaIndex(fastaIdx);
@@ -692,21 +724,15 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
 
             Assembler assembler(corrReads, kSize, maxMismatches, debug);
-
             // Assembler assembler(tmpReads, kSize, maxMismatches, debug);
-
             vector<string> contigs = assembler.ungappedGreedy();
 
             std::vector<contig_t> contigRecVector;
             std::vector<int> mapQualVector;
-
             std::unordered_set<std::string> usedReads;
 
-
             for (const auto& contig : contigs) {
-
                 std::string revContig = reverseComplement(contig);
-
                 contig_t contigRecord;
                 contigRecord.chr = chr;
                 contigRecord.seq = contig;
@@ -718,49 +744,51 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
                 int minusStrand = 0;
                 int plusStrand = 0;
-                
-                for (const auto& read : reads) {
-                    if (usedReads.find(read.read.Seq()) != usedReads.end()) {
-                        // Skip this read if it has already been used
-                        continue;
-                    }
-
-                    auto [editDistance, cigar] = alignReadToContig(read.read.Seq(), contig);
-
-                    int maxExitDistance = read.read.Seq().length()*0.15;
-
+                std::cout << "total_rads: " << reads.size() << std::endl;
+                for (int i=0; i<reads.size();i++) {
+                    // std::string readSeq = reads[i].read.Seq();
+                    std::string readSeq = corrReads[i];
+                    // if (usedReads.find(readSeq) != usedReads.end()) {
+                    //     // Skip this read if it has already been used
+                    //     continue;
+                    // }
+                    mapQualVector.push_back(reads[i].read.mapQual());
+                    auto [editDistance, cigar] = alignReadToContig(readSeq, contig);
                     if (editDistance >= 0 && editDistance <= 10) {
                         readSupport++;
                         isGood = true;
-                        mapQualVector.push_back(read.read.mapQual());
-                        contigStart = std::min(contigStart, static_cast<long>(read.pos));
-                        contigEnd = std::max(contigEnd, static_cast<long>(read.pos + read.read.Seq().size()));
+                        contigStart = std::min(contigStart, static_cast<long>(reads[i].pos));
+                        contigEnd = std::max(contigEnd, static_cast<long>(reads[i].pos + readSeq.size()));
                         contigRecord.seq = contig;
 
-                        if (read.strand == '+') {
+                        if (reads[i].strand == '+') {
                            plusStrand++;
                         } else {
                            minusStrand++;
                         }
-                        usedReads.insert(read.read.Seq());
-                    } 
-                    else {
-                        std::tie(editDistance, cigar) = alignReadToContig(read.read.Seq(), revContig);
+                        usedReads.insert(readSeq);
+                    }
+                    else{
+                        std::string revContig = reverseComplement(contig);
+                        auto [editDistance, cigar] = alignReadToContig(readSeq, revContig);
                         if (editDistance >= 0 && editDistance <= 10) {
                             readSupport++;
                             isGood = true;
-                            mapQualVector.push_back(read.read.mapQual());
-                            contigStart = std::min(contigStart, static_cast<long>(read.pos));
-                            contigEnd = std::max(contigEnd, static_cast<long>(read.pos + read.read.Seq().size()));
+                            contigStart = std::min(contigStart, static_cast<long>(reads[i].pos));
+                            contigEnd = std::max(contigEnd, static_cast<long>(reads[i].pos + readSeq.size()));
                             contigRecord.seq = revContig;
-                            if (read.strand == '+') {
-                                plusStrand++;
+
+                            if (reads[i].strand == '+') {
+                            plusStrand++;
                             } else {
-                                minusStrand++;
+                            minusStrand++;
                             }
-                            usedReads.insert(read.read.Seq());
+                            usedReads.insert(readSeq);
                         }
+
+
                     }
+
                 }
                 if (isGood) {
                     contigRecord.start = contigStart;
@@ -785,11 +813,15 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
                 std::string alnCigar = aln.cigarExtended;
                 int numOperations = aln.non_match_operations;
+                int alnLength = aln.ref_end-aln.ref_start;
+                double percLength = (double)alnLength/contig.seq.size();
+                // std::cout << contig.seq << " " << alnCigar  << " " << numOperations << " "  << percLength << std::endl;
+                if (percLength < 0.9) {
+                    continue;
+                }
 
-                // std::cout << alnCigar  << " " << numOperations << std::endl;
-
-
-                if (numOperations > 10) {
+                bool hasOP = hasOpCluster(alnCigar, 3);
+                if (hasOP) {
                     match_special = -10;
                     aln = affine_semiglobal(regionalFasta, contig.seq, match, mismatch, gap_open, gap_extend, match_special, mismatch_special);
                     alnCigar = aln.cigarExtended;
@@ -797,16 +829,14 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 }
 
                 std::vector<MutationSegment> mutationSegments;
-
                 // std::vector<MutationSegment> localMutationSegments;
                 bool flag = false;
                 int start = -1;
                 int end = -1;
-                const int maxDistance = 10;
+                const int maxDistance = 20;
 
                 int numOp = 0;
                 char prevOp;
-
                 int mod = 0;
 
                 for (size_t i = 0; i < aln.cigarExtended.length(); ++i) {
@@ -903,6 +933,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     variant.ref = refAllele;
                     variant.alt = altAllele;
                     variant.readSupport = contig.readSupport;
+                    variant.status = '.';
 
                     AlignmentStats alnStats = CalculateAlignmentStats(bamFile, variant.chr, variant.pos);
 

@@ -11,6 +11,7 @@
 #include "cluster_t.h"
 #include <regex>
 #include <filesystem>
+#include <set>
 
 struct TargetRegion {
     std::string chromosome;
@@ -105,9 +106,10 @@ std::vector<BamRecord> GetSoftClippedReadsInRegion(BamReader& reader, const std:
                         leading = false;
                     }
                 }
-            }
+            }   
 
             if (leadingSoftClips >= minSoftClip || trailingSoftClips >= minSoftClip) {
+                // std::cout << cigar << " " << leadingSoftClips << " " << trailingSoftClips << std::endl;
                 softClippedReads.push_back(record);
             }
         }
@@ -347,60 +349,130 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
     int clusterStart = 0;
     int clusterEnd = 0;
 
-    while (reader.GetNextRecord(record)) {
-        int readLength = record.Seq().length();
-        std::string readChrName = record.chrName();
-        std::string chromosomeName = record.chrName();
+    std::set<std::string> processedReads;
 
-        if (readChrName != chromosomeName) {
-            continue;
-        }
-        if (liesOnBlackRegion(excludeRegions[readChrName], chromosomeName, record.Position(), readLength)) {
-            continue;
-        }
-        if (!liesOnTargetRegion(targetRegions[readChrName], chromosomeName, record.Position(), readLength)) {
-            continue;
-        }
-        if (containsN(record.Seq())) {
-            continue;
-        }
+while (reader.GetNextRecord(record)) {
+    int readLength = record.Seq().length();
+    std::string readChrName = record.chrName();
+    std::string chromosomeName = record.chrName();
+    std::string readName = record.Qname();
 
-        int readPos = record.Position();
-        int windowIndex = readPos / 100;
-        std::string key = readChrName + ":" + std::to_string(windowIndex);
-        
-        clustered_aln_t clusteredRead;
-        clusteredRead.chromosome = readChrName;
-        clusteredRead.pos = readPos;
-        clusteredRead.read = record;
-        clusteredRead.strand = record.GetStrand();
-        clusteredRead.mean_bq = record.MeanBaseQuality();
+    // if (processedReads.find(readName) != processedReads.end()) {
+    //     continue; // Skip if the read has already been processed
+    // }
 
-        if (!inCluster) {
-            // Start a new cluster
-            clusterStart = readPos - 250; // 500 bp upstream
-            clusterEnd = readPos + 250;   // 500 bp downstream
+    if (readChrName != chromosomeName) {
+        continue;
+    }
+    if (liesOnBlackRegion(excludeRegions[readChrName], chromosomeName, record.Position(), readLength)) {
+        continue;
+    }
+    if (!liesOnTargetRegion(targetRegions[readChrName], chromosomeName, record.Position(), readLength)) {
+        continue;
+    }
+    if (containsN(record.Seq())) {
+        continue;
+    }
+
+    // processedReads.insert(readName); // Mark the read as processed
+
+    int readPos = record.Position();
+    int windowIndex = readPos / 100;
+    std::string key = readChrName + ":" + std::to_string(windowIndex);
+
+    clustered_aln_t clusteredRead;
+    clusteredRead.chromosome = readChrName;
+    clusteredRead.pos = readPos;
+    clusteredRead.read = record;
+    clusteredRead.strand = record.GetStrand();
+    clusteredRead.mean_bq = record.MeanBaseQuality();
+
+    if (!inCluster) {
+        // Start a new cluster
+        clusterStart = readPos - 100; // 500 bp upstream
+        clusterEnd = readPos + 100;   // 500 bp downstream
+        currentCluster.push_back(clusteredRead);
+        inCluster = true;
+    } else {
+        // Add read to the current cluster if it's within the cluster range and the total cluster size is within 500 bp
+        if (readPos >= clusterStart && readPos <= clusterEnd && (clusterEnd - clusterStart <= 500)) {
             currentCluster.push_back(clusteredRead);
-            inCluster = true;
+            // Update the cluster end if this read extends beyond it
+            clusterEnd = std::max(clusterEnd, readPos + 100);
         } else {
-            // Add read to the current cluster if it's within the cluster range
-            if (readPos >= clusterStart && readPos <= clusterEnd) {
-                currentCluster.push_back(clusteredRead);
-                // Update the cluster end if this read extends beyond it
-                clusterEnd = std::max(clusterEnd, readPos + 250);
-            } else {
-                // End the current cluster and start a new one
-                if (currentCluster.size() >= minSupport) {
-                    candidateClusters[key] = currentCluster;
-                    // clustersFile << readChrName << "\t" << currentCluster.front().pos << "\t" << currentCluster.back().pos << "\t" << currentCluster.size() << "\n";
-                }
-                currentCluster.clear();
-                clusterStart = readPos - 250;
-                clusterEnd = readPos + 250;
-                currentCluster.push_back(clusteredRead);
+            // End the current cluster and start a new one
+            if (currentCluster.size() >= minSupport) {
+                candidateClusters[key] = currentCluster;
             }
+            currentCluster.clear();
+            clusterStart = readPos - 100;
+            clusterEnd = readPos + 100;
+            currentCluster.push_back(clusteredRead);
         }
     }
+}
+
+    // while (reader.GetNextRecord(record)) {
+    //     int readLength = record.Seq().length();
+    //     std::string readChrName = record.chrName();
+    //     std::string chromosomeName = record.chrName();
+
+    //     if (readChrName != chromosomeName) {
+    //         continue;
+    //     }
+    //     if (liesOnBlackRegion(excludeRegions[readChrName], chromosomeName, record.Position(), readLength)) {
+    //         continue;
+    //     }
+    //     if (!liesOnTargetRegion(targetRegions[readChrName], chromosomeName, record.Position(), readLength)) {
+    //         continue;
+    //     }
+    //     if (containsN(record.Seq())) {
+    //         continue;
+    //     }
+    //     // std::string readName = record.Qname() + record.Seq();
+
+    //     // if (processedReads.find(readName) != processedReads.end()) {
+    //     //     continue; // Skip if the read has already been processed
+    //     // }
+
+    //     // processedReads.insert(readName); // Mark the read as processed
+
+    //     int readPos = record.Position();
+    //     int windowIndex = readPos / 100;
+    //     std::string key = readChrName + ":" + std::to_string(windowIndex);
+        
+    //     clustered_aln_t clusteredRead;
+    //     clusteredRead.chromosome = readChrName;
+    //     clusteredRead.pos = readPos;
+    //     clusteredRead.read = record;
+    //     clusteredRead.strand = record.GetStrand();
+    //     clusteredRead.mean_bq = record.MeanBaseQuality();
+
+    //     if (!inCluster) {
+    //         // Start a new cluster
+    //         clusterStart = readPos - 100; // 500 bp upstream
+    //         clusterEnd = readPos + 100;   // 500 bp downstream
+    //         currentCluster.push_back(clusteredRead);
+    //         inCluster = true;
+    //     } else {
+    //         // Add read to the current cluster if it's within the cluster range
+    //         if (readPos >= clusterStart && readPos <= clusterEnd) {
+    //             currentCluster.push_back(clusteredRead);
+    //             // Update the cluster end if this read extends beyond it
+    //             clusterEnd = std::max(clusterEnd, readPos + 100);
+    //         } else {
+    //             // End the current cluster and start a new one
+    //             if (currentCluster.size() >= minSupport) {
+    //                 candidateClusters[key] = currentCluster;
+    //             }
+    //             currentCluster.clear();
+    //             clusterStart = readPos - 100;
+    //             clusterEnd = readPos + 100;
+    //             currentCluster.push_back(clusteredRead);
+    //         }
+    //     }
+        
+    // }
 
     // Add soft-clipped reads to the clusters
     std::cout << " INFO: Rescueing soft-clipped reads" << std::endl;
@@ -410,27 +482,8 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
     for (auto it = candidateClusters.begin(); it != candidateClusters.end();) {
         if (it->second.size() < minSupport) {
             it = candidateClusters.erase(it);
-        } 
+        }
         else {
-            std::string chr = it->second[0].chromosome;
-            int start = it->second[0].pos - 100;
-            int end = it->second[0].pos + 100;
-            std::string region = chr + ":" + std::to_string(start) + "-" + std::to_string(end);
-
-            auto softClippedReads = GetSoftClippedReadsInRegion(softClipReader, region);
-
-            for (const auto& scRead : softClippedReads) {
-                clustered_aln_t clusteredRead;
-                clusteredRead.chromosome = scRead.chrName();
-                clusteredRead.pos = scRead.Position();
-                clusteredRead.read = scRead;
-                clusteredRead.strand = scRead.GetStrand();
-
-                double meanBaseQual = scRead.MeanBaseQuality();
-                clusteredRead.mean_bq = meanBaseQual;
-
-                it->second.push_back(clusteredRead);
-            }
             int64_t minPos = 9000000000000000;
             int64_t maxPos = 0;
             for (auto& i : it->second) {
@@ -445,6 +498,31 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
                 }
             }
 
+            std::string chr = it->second[0].chromosome;
+            std::string region = chr + ":" + std::to_string(minPos) + "-" + std::to_string(maxPos);
+
+            auto softClippedReads = GetSoftClippedReadsInRegion(softClipReader, region);
+            for (const auto& scRead : softClippedReads) {
+                clustered_aln_t clusteredRead;
+                clusteredRead.chromosome = scRead.chrName();
+                clusteredRead.pos = scRead.Position();
+                clusteredRead.read = scRead;
+                clusteredRead.strand = scRead.GetStrand();
+                std::string readName = scRead.Qname() + scRead.Seq();
+
+                // if (processedReads.find(readName) != processedReads.end()) {
+                //     continue; // Skip if the read has already been processed
+                // }
+
+                double meanBaseQual = scRead.MeanBaseQuality();
+                clusteredRead.mean_bq = meanBaseQual;
+                // if (processedReads.find(readName) == processedReads.end()) {
+                //     it->second.push_back(clusteredRead);
+                //     processedReads.insert(readName);
+                // }
+                it->second.push_back(clusteredRead);
+            }
+ 
             clustersFile << chr << "\t" << minPos << "\t" << maxPos << "\t" << it->second.size() << "\n";
             ++it;
         }

@@ -87,24 +87,6 @@ std::multimap<std::string, std::string> Assembler::createReadTable() {
 	return readHash;
 }
 
-// std::unordered_multimap<std::string, Contig> Assembler::createPrefixTable() {
-//     std::unordered_multimap<std::string, Contig> prefixHash;
-
-//     for (auto contig : ContigList) {
-//         for (int k = 15; k <= contig.seq.length(); ++k) { // Use k-mers of increasing length from 15 to full length
-//             std::string prefix = contig.seq.substr(0, k);
-//             std::string revCompRead = revComp(contig.seq);
-//             std::string revCompPrefix = revCompRead.substr(0, k);
-//             Contig revCompContig = contig;
-//             revCompContig.seq = revCompRead;
-
-//             prefixHash.insert(std::pair<std::string, Contig>(prefix, contig));
-//             prefixHash.insert(std::pair<std::string, Contig>(revCompPrefix, contig));
-//         }
-//     }
-
-//     return prefixHash;
-// }
 
 
 std::unordered_multimap<std::string, Contig> Assembler::createPrefixTable() {
@@ -575,7 +557,7 @@ std::pair<int, Contig> Assembler::Extend( std::unordered_multimap<std::string, C
 		for (auto& ntd : consensusVector) {
 			std::string b;
 			int totalb;
-			if (ntd.totalBases > 0) {
+			if (ntd.totalBases > 1) {
 				std::tie(b, totalb) = mostVotedBase(ntd);
 				contig+=b;
 				NewConsensus.push_back(ntd);
