@@ -704,7 +704,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             RefFasta ref(refFasta);
             refStart = std::max(1L, refStart - 49);  // Adjust for 1-based indexing
             refEnd = std::min(static_cast<long>(chromosomeLength), refEnd + 50);
-            // std::cout << chr << " " << refStart << " " << refEnd << std::endl;
+            std::cout << " INFO: Interrogating "<< chr << ":" << refStart << "-" << refEnd << std::endl;
 
             Locus newLocus;
             newLocus.chromosome = chr;
@@ -722,10 +722,13 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             bool debug = false;
             std::vector<std::string> corrReads = correctSequences(tmpReads, 21, 2);
 
-
+            // std::cout << " INPUT CONTIGS" << std::endl;
             Assembler assembler(corrReads, kSize, maxMismatches, debug);
+
             // Assembler assembler(tmpReads, kSize, maxMismatches, debug);
             vector<string> contigs = assembler.ungappedGreedy();
+
+            // std::cout << "OUTPUT CONTIGS" << std::endl;
 
             std::vector<contig_t> contigRecVector;
             std::vector<int> mapQualVector;
@@ -744,7 +747,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
                 int minusStrand = 0;
                 int plusStrand = 0;
-                std::cout << "total_rads: " << reads.size() << std::endl;
+                // std::cout << "total_reads: " << reads.size() << std::endl;
                 for (int i=0; i<reads.size();i++) {
                     // std::string readSeq = reads[i].read.Seq();
                     std::string readSeq = corrReads[i];
@@ -809,13 +812,14 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 int match_special = 0;
                 int mismatch_special = -20;
 
+
                 AlignmentResult aln = affine_semiglobal(regionalFasta, contig.seq, match, mismatch, gap_open, gap_extend, match_special, mismatch_special);
 
                 std::string alnCigar = aln.cigarExtended;
                 int numOperations = aln.non_match_operations;
                 int alnLength = aln.ref_end-aln.ref_start;
                 double percLength = (double)alnLength/contig.seq.size();
-                // std::cout << contig.seq << " " << alnCigar  << " " << numOperations << " "  << percLength << std::endl;
+                //  std::cout << contig.seq << " " << alnCigar  << " " << numOperations << " "  << percLength << std::endl;
                 if (percLength < 0.9) {
                     continue;
                 }

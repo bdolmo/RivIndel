@@ -475,7 +475,7 @@ while (reader.GetNextRecord(record)) {
     // }
 
     // Add soft-clipped reads to the clusters
-    std::cout << " INFO: Rescueing soft-clipped reads" << std::endl;
+    std::cout << " INFO: Rescueing soft-clipped reads for " << chromosomeName << std::endl;
 
     // Remove clusters that do not meet the minimum read support and add nearby soft-clipped reads
     BamReader softClipReader(bamFile);
