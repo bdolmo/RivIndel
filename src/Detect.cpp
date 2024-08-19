@@ -25,8 +25,142 @@
 #include <regex>
 #include "Assembler.h"
 #include <unordered_set>
+#include "ssw_cpp.h"
 
 
+AlignmentResult align_with_ssw(const std::string& read, const std::string& contig) {
+    // Initialize a default scoring matrix for DNA sequences
+    const int8_t match = 2;     // Match score
+    const int8_t mismatch = 8;  // Mismatch penalty
+    const int8_t gapOpen = 10;  // Gap open penalty
+    const int8_t gapExtend = 1; // Gap extend penalty
+
+    // Initialize the SSW aligner
+    StripedSmithWaterman::Aligner aligner(match, mismatch, gapOpen, gapExtend);
+
+    // Initialize the SSW filter (optional settings, can be adjusted as needed)
+    StripedSmithWaterman::Filter filter;
+
+    // Create an alignment object to store the result
+    StripedSmithWaterman::Alignment alignment;
+
+    // Perform the alignment
+    aligner.Align(read.c_str(), contig.c_str(), contig.size(), filter, &alignment);
+
+    // Extract the compacted CIGAR string
+    std::string compactedCigar = alignment.cigar_string;
+
+    // Generate the extended CIGAR string and adjust query_start and query_end to skip soft-clips
+    std::string cigarExtended;
+    int query_start = alignment.query_begin;
+    int query_end = alignment.query_end;
+    int ref_start = alignment.ref_begin;
+    int ref_end = alignment.ref_end;
+
+    // Count the number of non-'M' operations from the compacted CIGAR string
+    std::set<char> operations;
+    for (size_t i = 0; i < compactedCigar.length(); ++i) {
+        char c = compactedCigar[i];
+        if (std::isalpha(c) && c != 'M' && c != 'S') {
+            operations.insert(c);  // Insert into set to ensure uniqueness
+        }
+    }
+
+    // Count of distinct non-'M' and non-'S' operations
+    int non_match_operations = operations.size();
+    std::cout<< "FUCK " <<non_match_operations<< std::endl;
+
+    std::string seq1_align, seq2_align, spacer;
+    // Optionally, generate the extended CIGAR if needed
+    int readPos = alignment.query_begin;
+    int contigPos = alignment.ref_begin;
+    for (size_t i = 0; i < compactedCigar.length(); ++i) {
+        char op = compactedCigar[i];
+        if (isdigit(op)) {
+            int len = 0;
+            while (isdigit(compactedCigar[i])) {
+                len = len * 10 + (compactedCigar[i] - '0');
+                ++i;
+            }
+            op = compactedCigar[i];
+            if (op == 'S') {
+                continue;
+            }
+
+            for (int j = 0; j < len; ++j) {
+                cigarExtended += op;
+                if (op == 'M') { // Match/mismatch
+                    seq1_align += read[readPos];
+                    seq2_align += contig[contigPos];
+                    spacer += (read[readPos] == contig[contigPos] ? '|' : '*'); // Match or mismatch
+                    readPos++;
+                    contigPos++;
+                } else if (op == 'I') { // Insertion in the read
+                    seq1_align += read[readPos];
+                    seq2_align += '-';
+                    spacer += ' ';
+                    readPos++;
+                    // non_match_operations++;  // Count as non-match operation
+                } else if (op == 'D') { // Deletion in the read (gap in the read)
+                    seq1_align += '-';
+                    seq2_align += contig[contigPos];
+                    spacer += ' ';
+                    contigPos++;
+                    // non_match_operations++;  // Count as non-match operation
+                }
+                // } else if (op == 'S') { // Soft clipping
+                //     seq1_align += read[readPos];  // Include soft-clipped bases in the read alignment
+                //     seq2_align += '-';            // No reference base, so align to a gap
+                //     spacer += ' ';                // No match or mismatch indication
+                //     readPos++;  // Move forward in the read but not in the reference
+                //     // contigPos++;
+                // }
+            }
+            // for (int j = 0; j < len; ++j) {
+            //     cigarExtended += op;
+            //     if (op == 'M') { // Match/mismatch
+            //         seq1_align += read[readPos];
+            //         seq2_align += contig[contigPos];
+            //         spacer += (read[readPos] == contig[contigPos] ? '|' : '*'); // Match or mismatch
+            //         readPos++;
+            //         contigPos++;
+            //     } else if (op == 'I') { // Insertion in the read
+            //         seq1_align += read[readPos];
+            //         seq2_align += '-';
+            //         spacer += ' ';
+            //         readPos++;
+            //         non_match_operations++;  // Count as non-match operation
+            //     } else if (op == 'D') { // Deletion in the read (gap in the read)
+            //         seq1_align += '-';
+            //         seq2_align += contig[contigPos];
+            //         spacer += ' ';
+            //         contigPos++;
+            //         non_match_operations++;  // Count as non-match operation
+            //     }
+            // }
+        }
+    }
+
+    std::cout << seq1_align << std::endl;
+    std::cout << spacer << std::endl;
+    std::cout << seq2_align << std::endl<< std::endl;
+
+    // Create the AlignmentResult2 struct
+    AlignmentResult result;
+    result.query_start = ref_start-1;
+    result.query_end = ref_end+1;
+    result.ref_start = query_start;
+    result.ref_end = query_end+1;
+    result.compactedCigar = compactedCigar;
+    result.cigarExtended = cigarExtended;
+    result.seq1_align = seq1_align;
+    result.seq2_align = seq2_align;
+    result.spacer = spacer;
+
+    result.non_match_operations = non_match_operations;  // Store the count of non-'M' operations
+
+    return result;
+}
 
 // Function to check for clusters of different operations within 10 positions
 bool hasOpCluster(const std::string& cigar, const int& numOp) {
@@ -260,37 +394,92 @@ std::pair<float, float> getFlankingKmerDiversity(const std::string& chr, int pos
 }
 
 std::pair<int, std::string> alignReadToContig(const std::string& read, const std::string& contig) {
-    EdlibAlignResult result = edlibAlign(read.c_str(), read.size(), contig.c_str(), contig.size(),
-        edlibNewAlignConfig(-1, EDLIB_MODE_HW, EDLIB_TASK_DISTANCE, NULL, 0));
+    // Initialize a default scoring matrix for DNA sequences
+    const int8_t match = 2;     // Match score
+    const int8_t mismatch = 8; // Mismatch penalty
+    const int8_t gapOpen = 10;   // Gap open penalty
+    const int8_t gapExtend = 1; // Gap extend penalty
 
-    int editDistance = result.status == EDLIB_STATUS_OK ? result.editDistance : -1;
-    std::string cigar;
+    // Initialize the SSW aligner
+    StripedSmithWaterman::Aligner aligner(match, mismatch, gapOpen, gapExtend);
 
-    if (result.status == EDLIB_STATUS_OK && result.alignment) {
-        char* cigarC = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
-        cigar = std::string(cigarC);
-        free(cigarC);
+    // Initialize the SSW filter (optional settings, can be adjusted as needed)
+    StripedSmithWaterman::Filter filter;
+
+    // Create an alignment object to store the result
+    StripedSmithWaterman::Alignment alignment;
+
+    // Perform the alignment
+    aligner.Align(read.c_str(), contig.c_str(), contig.size(), filter, &alignment);
+
+    // Calculate the aligned length
+    int alignedLength = alignment.ref_end - alignment.ref_begin + 1;
+
+    // Check if the aligned length is less than 30 bases
+    if (alignedLength < 15) {
+        return {-1, ""}; // Return -1 for mismatches and an empty CIGAR if not valid
     }
 
+    // Convert the CIGAR vector to a string
+    std::string cigar = alignment.cigar_string;
 
-    // Print out the offsets and the CIGAR string
-    if (result.status == EDLIB_STATUS_OK) {
-        // std::cout << "Read Start: " << result.startLocations[0] << std::endl;
-        // std::cout << "Read End: " << result.endLocations[0] << std::endl;
-        // std::cout << "Contig Start: " << result.startLocations[1] << std::endl;
-        // std::cout << "Contig End: " << result.endLocations[1] << std::endl;
-        // std::cout << read << " " << contig << std::endl;
-    // printf("%d\n", result.editDistance);
-    // printf("%d\n", result.alignmentLength);
-    // printf("%d\n", result.endLocations[0]);
-        // std::cout << result.alignmentLength << std::endl;
+    // Calculate the total number of mismatches
+    int totalMismatches = alignment.mismatches;
 
-        // std::cout << "Editdistance: " << editDistance << " CIGAR String: " << cigar << " " << result.alignment << std::endl << std::endl;
-    }
+    // Generate the aligned sequence output
+    std::string alignedRead = read.substr(alignment.query_begin, alignedLength);
+    std::string alignedContig = contig.substr(alignment.ref_begin, alignedLength);
 
-    edlibFreeAlignResult(result);
-    return {editDistance, cigar};
+    // std::string matchLine;
+    // for (size_t i = 0; i < alignedLength; ++i) {
+    //     if (alignedRead[i] == alignedContig[i]) {
+    //         matchLine += '|'; // Match
+    //     } else {
+    //         matchLine += ' '; // Mismatch
+    //     }
+    // }
+
+    // // Print the alignment
+    // std::cout << "Read:   " << alignedRead << std::endl;
+    // std::cout << "        " << matchLine << std::endl;
+    // std::cout << "Contig: " << alignedContig << std::endl;
+    // std::cout << "Aligned length:" << alignedLength <<std::endl;
+    // Return the total number of mismatches and the CIGAR string
+    return {totalMismatches, cigar};
 }
+
+// std::pair<int, std::string> alignReadToContig(const std::string& read, const std::string& contig) {
+//     EdlibAlignResult result = edlibAlign(read.c_str(), read.size(), contig.c_str(), contig.size(),
+//         edlibNewAlignConfig(-1, EDLIB_MODE_HW, EDLIB_TASK_DISTANCE, NULL, 0));
+
+//     int editDistance = result.status == EDLIB_STATUS_OK ? result.editDistance : -1;
+//     std::string cigar;
+
+//     if (result.status == EDLIB_STATUS_OK && result.alignment) {
+//         char* cigarC = edlibAlignmentToCigar(result.alignment, result.alignmentLength, EDLIB_CIGAR_STANDARD);
+//         cigar = std::string(cigarC);
+//         free(cigarC);
+//     }
+
+
+//     // Print out the offsets and the CIGAR string
+//     if (result.status == EDLIB_STATUS_OK) {
+//         // std::cout << "Read Start: " << result.startLocations[0] << std::endl;
+//         // std::cout << "Read End: " << result.endLocations[0] << std::endl;
+//         // std::cout << "Contig Start: " << result.startLocations[1] << std::endl;
+//         // std::cout << "Contig End: " << result.endLocations[1] << std::endl;
+//         // std::cout << read << " " << contig << std::endl;
+//     // printf("%d\n", result.editDistance);
+//     // printf("%d\n", result.alignmentLength);
+//     // printf("%d\n", result.endLocations[0]);
+//         // std::cout << result.alignmentLength << std::endl;
+
+//         // std::cout << "Editdistance: " << editDistance << " CIGAR String: " << cigar << " " << result.alignment << std::endl << std::endl;
+//     }
+
+//     edlibFreeAlignResult(result);
+//     return {editDistance, cigar};
+// }
 
 
 // Function to find the complement of a nucleotide
@@ -646,6 +835,32 @@ std::vector<std::string> correctReads(std::vector<std::string>& reads) {
 }
 
 
+bool has_valid_end_operations(const std::string& cigarExtended) {
+    int startMatches = 0, startSoftClips = 0;
+    int endMatches = 0, endSoftClips = 0;
+
+    // Check the first 5 operations
+    for (size_t i = 0; i < cigarExtended.length() && i < 5; ++i) {
+        if (cigarExtended[i] == 'M') {
+            startMatches++;
+        } else if (cigarExtended[i] == 'S') {
+            startSoftClips++;
+        }
+    }
+
+    // Check the last 5 operations
+    for (size_t i = cigarExtended.length(); i-- > cigarExtended.length() - 5 && i >= 0; ) {
+        if (cigarExtended[i] == 'M') {
+            endMatches++;
+        } else if (cigarExtended[i] == 'S') {
+            endSoftClips++;
+        }
+    }
+
+    // Valid if there are at least 5 matches or soft clips at both ends
+    return (startMatches >= 5 || startSoftClips >= 5) && (endMatches >= 5 || endSoftClips >= 5);
+}
+
 std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clustered_aln_t>>& clusteredReads,
     const std::string& bamFile, const std::string& refFasta, const int& threads, const std::string& chromosomeName, 
     const bool contigsOut, const std::string& contigsOutFile) {
@@ -700,10 +915,11 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 meanBaseQuality = 0.0;
             }
 
+            int flankSpace = 49;
             int chromosomeLength = chromosomeLengths[chr];
             RefFasta ref(refFasta);
-            refStart = std::max(1L, refStart - 49);  // Adjust for 1-based indexing
-            refEnd = std::min(static_cast<long>(chromosomeLength), refEnd + 50);
+            refStart = std::max(1L, refStart - flankSpace);  // Adjust for 1-based indexing
+            refEnd = std::min(static_cast<long>(chromosomeLength), refEnd + flankSpace+1);
             std::cout << " INFO: Interrogating "<< chr << ":" << refStart << "-" << refEnd << std::endl;
 
             Locus newLocus;
@@ -711,7 +927,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             newLocus.start = refStart;
             newLocus.end = refEnd;
 
-            std::string regionalFasta = ref.fetchSequence(chr, refStart - 49, refEnd + 50);
+            std::string regionalFasta = ref.fetchSequence(chr, refStart - flankSpace, refEnd + flankSpace+1);
             regionalFasta = to_uppercase(regionalFasta);
 
             const int kmerSize = 20;
@@ -733,8 +949,13 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             std::vector<contig_t> contigRecVector;
             std::vector<int> mapQualVector;
             std::unordered_set<std::string> usedReads;
+            std::sort(contigs.begin(), contigs.end(), [](const std::string& a, const std::string& b) {
+                return a.size() > b.size(); // Sort by length, longest strings first
+            });
 
             for (const auto& contig : contigs) {
+
+                // std::cout << "Contig to be aligned with reds: "<< chr << ":" << refStart << "-" << refEnd << " " << contig << std::endl;
                 std::string revContig = reverseComplement(contig);
                 contig_t contigRecord;
                 contigRecord.chr = chr;
@@ -747,17 +968,21 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
                 int minusStrand = 0;
                 int plusStrand = 0;
-                // std::cout << "total_reads: " << reads.size() << std::endl;
+
                 for (int i=0; i<reads.size();i++) {
+                    std::string readName = reads[i].readName;
+               
                     // std::string readSeq = reads[i].read.Seq();
                     std::string readSeq = corrReads[i];
-                    // if (usedReads.find(readSeq) != usedReads.end()) {
-                    //     // Skip this read if it has already been used
-                    //     continue;
-                    // }
+                    if (usedReads.find(readName) != usedReads.end()) {
+                        // Skip this read if it has already been used
+                        continue;
+                    }
+
                     mapQualVector.push_back(reads[i].read.mapQual());
                     auto [editDistance, cigar] = alignReadToContig(readSeq, contig);
-                    if (editDistance >= 0 && editDistance <= 10) {
+
+                     if (editDistance <= 10) {
                         readSupport++;
                         isGood = true;
                         contigStart = std::min(contigStart, static_cast<long>(reads[i].pos));
@@ -769,30 +994,11 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         } else {
                            minusStrand++;
                         }
-                        usedReads.insert(readSeq);
+                        usedReads.insert(readName);
                     }
-                    else{
-                        std::string revContig = reverseComplement(contig);
-                        auto [editDistance, cigar] = alignReadToContig(readSeq, revContig);
-                        if (editDistance >= 0 && editDistance <= 10) {
-                            readSupport++;
-                            isGood = true;
-                            contigStart = std::min(contigStart, static_cast<long>(reads[i].pos));
-                            contigEnd = std::max(contigEnd, static_cast<long>(reads[i].pos + readSeq.size()));
-                            contigRecord.seq = revContig;
-
-                            if (reads[i].strand == '+') {
-                            plusStrand++;
-                            } else {
-                            minusStrand++;
-                            }
-                            usedReads.insert(readSeq);
-                        }
-
-
-                    }
-
                 }
+
+                // std::cout << readSupport << std::endl;
                 if (isGood) {
                     contigRecord.start = contigStart;
                     contigRecord.end = contigEnd;
@@ -812,8 +1018,12 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 int match_special = 0;
                 int mismatch_special = -20;
 
-
                 AlignmentResult aln = affine_semiglobal(regionalFasta, contig.seq, match, mismatch, gap_open, gap_extend, match_special, mismatch_special);
+                // AlignmentResult aln = align_with_ssw(contig.seq, regionalFasta);
+                // std::cout << aln.query_start << " " << aln.query_end << " " << aln.ref_start << " " << aln.ref_end << std::endl;
+                // std::cout << aln2.query_start << " " << aln2.query_end << " " << aln2.ref_start << " " << aln2.ref_end << std::endl;
+                // std::cout << aln.cigarExtended << std::endl;
+                // std::cout << aln2.cigarExtended << std::endl << std::endl;
 
                 std::string alnCigar = aln.cigarExtended;
                 int numOperations = aln.non_match_operations;
@@ -828,12 +1038,12 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 if (hasOP) {
                     match_special = -10;
                     aln = affine_semiglobal(regionalFasta, contig.seq, match, mismatch, gap_open, gap_extend, match_special, mismatch_special);
+                    // aln = aln2;
                     alnCigar = aln.cigarExtended;
                     numOperations = aln.non_match_operations;
                 }
 
                 std::vector<MutationSegment> mutationSegments;
-                // std::vector<MutationSegment> localMutationSegments;
                 bool flag = false;
                 int start = -1;
                 int end = -1;
@@ -843,9 +1053,16 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 char prevOp;
                 int mod = 0;
 
+                bool isvalid = has_valid_end_operations(aln.cigarExtended);
+                if (!isvalid) {
+                    continue;
+                }
+
+                // std::cout << "cigar extended: " << aln.cigarExtended << std::endl;
+                std::cout << "cigar extended2: " << aln.cigarExtended << std::endl;
+
                 for (size_t i = 0; i < aln.cigarExtended.length(); ++i) {
                     char op = aln.cigarExtended[i];
-                    // std::cout << "operation " << op << std::endl;
 
                     if (!flag && (op == 'X' || op == 'D' || op == 'I')) {
                         flag = true;
@@ -854,8 +1071,8 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         numOp = 1;
                         prevOp = op;
                         mod = 0;
+                        // std::cout << "start ffdfdf: " << start  << " " << aln.cigarExtended.length()<< std::endl;
                     } else if (flag) {
-                        // std::cout << "flag in " << i << " " << end  << " " << std::endl;
 
                         if (op == 'X' || op == 'D' || op == 'I') {
                             if (i - end <= maxDistance) {
@@ -875,6 +1092,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                             numOp++;
                         } else {
                             if (numOp > 1 || (numOp == 1 && prevOp != 'X')) {
+                                // std::cout << numOp << " " << "HEREE " << start << " " << end  << " " << numOperations << std::endl;
                                 mutationSegments.push_back({start, end});
                             }
                             flag = false;
@@ -886,26 +1104,43 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     mutationSegments.push_back({start, end});
                 }
 
+                // std::cout << "reflength:" << regionalFasta.size() << std::endl;
 
                 for (const auto& seg : mutationSegments) {
                     int newstart = seg.start;
                     int newend = seg.end;
+                    // std::cout << "mutation segment: "<< newstart << " " << newend << std::endl;
+
                     std::string refAllele;
                     std::string altAllele;
+
+                    bool isOutOfBound = false;
 
                     if (newstart < 0 || numOperations > 6 || ((newend - newstart) < 2 && numOperations > 6)) {
                         continue;
                     }
 
                     std::string reducedCigar = alnCigar.substr(newstart - 1, newend + 1 - newstart + 1);
+                    std::cout << reducedCigar << std::endl;
                     int i = aln.query_start + newstart;
+                    // int j = newstart;
                     int j = newstart - 1;
+
+                    // std::cout << "seg_start: " << newstart << " " << "seg_end:" << newend << std::endl;
 
                     for (auto& op : reducedCigar) {
                         char ref_ntd = regionalFasta[i];
                         char alt_ntd = aln.seq2_align[j];
+                        // char alt_ntd2 = aln.seq1_align[j];
+                        // std::cout << aln.seq1_align << std:endl;
+                        // std::cout << aln.seq2_align
+                        // std::cout << op << " " <<  aln.seq2_align << " " << aln.seq2_align.size() << " " << j << " " << aln.seq2_align[j]<<" " << alt_ntd  << " " << alt_ntd2<<std::endl;
+                       if (i >=regionalFasta.size()-1) {
+                            isOutOfBound = true;
+                        }
                         if (op != 'D' && op != 'I') {
                             refAllele += ref_ntd;
+
                             if (alt_ntd != '-') {
                                 altAllele += alt_ntd;
                             }
@@ -914,13 +1149,23 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         } 
                         else {
                             if (op == 'D') {
+          
+
+                                // std::cout << "ref_ntd: " << ref_ntd << " " << i << " " << regionalFasta.size()<< std::endl;
                                 refAllele += ref_ntd;
                                 i++;
                             } else if (op == 'I') {
+                                // alt_ntd = aln.seq2_align[j];
                                 if (alt_ntd != '-') {
+                                    // altAllele += alt_ntd; //worked with original impelemtation of sw
                                     altAllele += alt_ntd;
                                 }
+                                // else{
+                                //     std::cout << "what the fuck" << std::endl;
+                                // }
+                                //alt_ntd = aln.seq2_align[j]
                                 j++;
+
                             }
                         }
                     }
@@ -928,14 +1173,21 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     if (refAllele == altAllele) {
                         continue;
                     }
+                    if (isOutOfBound) {
+                        continue;
+                    }
 
+                    std::cout <<"alt:"<< altAllele << std::endl;
                     variant_t variant;
-                    long newPos = aln.query_start + refStart + newstart - 49;
+                    long newPos = aln.query_start + refStart + newstart - flankSpace;
 
                     variant.chr = contig.chr;
                     variant.pos = newPos;
                     variant.ref = refAllele;
                     variant.alt = altAllele;
+
+                    std::cout << variant.chr << " " <<  variant.pos << " " <<  variant.ref << " " << variant.alt << std::endl;
+
                     variant.readSupport = contig.readSupport;
                     variant.status = '.';
 

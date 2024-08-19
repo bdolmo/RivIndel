@@ -75,47 +75,126 @@ std::map<std::string, std::vector<TargetRegion>> parseBedFile2(const std::string
     return targetRegionsMap;
 }
 
-std::vector<BamRecord> GetSoftClippedReadsInRegion(BamReader& reader, const std::string& region, int minSoftClip = 10) {
+
+std::vector<BamRecord> GetSoftClippedReadsInRegion(BamReader& reader, const std::string& region, int minSoftClip = 5) {
     std::vector<BamRecord> softClippedReads;
     reader.SetRegion(region);
     BamRecord record;
 
     while (reader.GetNextRecord(record)) {
         std::string cigar = record.cigarString();
+        std::string mdTag = record.MDtag(); // Assuming getMDTag() fetches the MD tag from the BAM record.
         size_t cigarLength = cigar.length();
-        if (cigarLength > 1) {
-            int leadingSoftClips = 0;
-            int trailingSoftClips = 0;
-            bool leading = true;
 
-            for (size_t i = 0; i < cigarLength; ++i) {
-                char c = cigar[i];
-                if (isdigit(c)) {
-                    int length = 0;
-                    while (isdigit(c)) {
-                        length = length * 10 + (c - '0');
-                        c = cigar[++i];
-                    }
-                    if (c == 'S') {
-                        if (leading) {
-                            leadingSoftClips = length;
-                        } else {
-                            trailingSoftClips = length;
-                        }
-                    } else {
-                        leading = false;
-                    }
+        bool hasValidSoftClip = false;
+        int leadingSoftClips = 0;
+        int trailingSoftClips = 0;
+        bool leading = true;
+
+        // Parse CIGAR string to find soft clips
+        for (size_t i = 0; i < cigarLength; ++i) {
+            char c = cigar[i];
+            if (isdigit(c)) {
+                int length = 0;
+                while (isdigit(c)) {
+                    length = length * 10 + (c - '0');
+                    c = cigar[++i];
                 }
-            }   
-
-            if (leadingSoftClips >= minSoftClip || trailingSoftClips >= minSoftClip) {
-                // std::cout << cigar << " " << leadingSoftClips << " " << trailingSoftClips << std::endl;
-                softClippedReads.push_back(record);
+                if (c == 'S') {
+                    if (leading) {
+                        leadingSoftClips = length;
+                    } else {
+                        trailingSoftClips = length;
+                    }
+                } else {
+                    leading = false;
+                }
             }
         }
+
+        if (leadingSoftClips >= minSoftClip || trailingSoftClips >= minSoftClip) {
+            hasValidSoftClip = true;
+        }
+
+        // Parse MD tag to find mismatches in the first or last 10 bases
+        int mismatchCount = 0;
+        int posInRead = 0;
+        bool mismatchInFirst10 = false;
+        bool mismatchInLast10 = false;
+
+        for (size_t i = 0; i < mdTag.size(); ++i) {
+            char ch = mdTag[i];
+            if (!isdigit(ch) && ch != '^') {
+                ++mismatchCount;
+                if (posInRead < 10) {
+                    mismatchInFirst10 = true;
+                }
+                if (posInRead >= record.Seq().size() - 10) {
+                    mismatchInLast10 = true;
+                }
+                ++posInRead;
+            } else if (isdigit(ch)) {
+                int num = 0;
+                while (i < mdTag.size() && isdigit(mdTag[i])) {
+                    num = num * 10 + (mdTag[i] - '0');
+                    ++i;
+                }
+                --i; // Compensate for the outer loop increment
+                posInRead += num;
+            }
+        }
+
+        // If any valid soft clip or mismatch in the first or last 10 bases, add to the results
+        if (hasValidSoftClip || mismatchInFirst10 || mismatchInLast10) {
+            softClippedReads.push_back(record);
+        }
     }
+
     return softClippedReads;
 }
+
+
+// std::vector<BamRecord> GetSoftClippedReadsInRegion(BamReader& reader, const std::string& region, int minSoftClip = 10) {
+//     std::vector<BamRecord> softClippedReads;
+//     reader.SetRegion(region);
+//     BamRecord record;
+
+//     while (reader.GetNextRecord(record)) {
+//         std::string cigar = record.cigarString();
+//         size_t cigarLength = cigar.length();
+//         if (cigarLength > 1) {
+//             int leadingSoftClips = 0;
+//             int trailingSoftClips = 0;
+//             bool leading = true;
+
+//             for (size_t i = 0; i < cigarLength; ++i) {
+//                 char c = cigar[i];
+//                 if (isdigit(c)) {
+//                     int length = 0;
+//                     while (isdigit(c)) {
+//                         length = length * 10 + (c - '0');
+//                         c = cigar[++i];
+//                     }
+//                     if (c == 'S') {
+//                         if (leading) {
+//                             leadingSoftClips = length;
+//                         } else {
+//                             trailingSoftClips = length;
+//                         }
+//                     } else {
+//                         leading = false;
+//                     }
+//                 }
+//             }   
+
+//             if (leadingSoftClips >= minSoftClip || trailingSoftClips >= minSoftClip) {
+//                 // std::cout << cigar << " " << leadingSoftClips << " " << trailingSoftClips << std::endl;
+//                 softClippedReads.push_back(record);
+//             }
+//         }
+//     }
+//     return softClippedReads;
+// }
 
 bool isOverlap(int start1, int end1, int start2, int end2) {
     return (start1 <= end2 && end1 >= start2);
@@ -247,7 +326,40 @@ bool containsN(const std::string& read) {
 bool binarySearch(const std::vector<TargetRegion>& vec, int n, int64_t start, int64_t end) {
     int low = 0;
     int high = n - 1;
+    // while (low <= high) {
+    //     int mid = (low + high) / 2;
+    //     const TargetRegion& region = vec[mid];
 
+    //     int overlapStart = start;
+    //     if (region.start > overlapStart) {
+    //         overlapStart = region.start;
+    //     }
+    //     int overlapEnd = start;
+    //     if (region.start < end) {
+    //         overlapEnd = region.start;
+    //     }
+
+    //     // Calculate overlap start and end
+    //     int overlapStart = std::max(start, region.start);
+    //     int overlapEnd = std::min(end, region.end);
+
+    //     // Calculate lengths
+    //     int overlapLength = overlapEnd - overlapStart + 1;
+    //     int queryLength = end - start + 1;
+    //     int regionLength = region.end - region.start + 1;
+
+    //     // Check if the overlap is at least 80% of the query length
+    //     if (overlapLength >= 0.8 * queryLength && overlapLength >= 0.8 * regionLength) {
+    //         return true;
+    //     }
+
+    //     // Narrow the search range
+    //     if (end < region.start) {
+    //         high = mid - 1;
+    //     } else {
+    //         low = mid + 1;
+    //     }
+    // }
     while (low <= high) {
         int mid = (low + high) / 2;
         const TargetRegion& region = vec[mid];
@@ -256,6 +368,13 @@ bool binarySearch(const std::vector<TargetRegion>& vec, int n, int64_t start, in
         if (start >= region.start && end <= region.end) {
             return true;
         }
+        if (start <= region.start && end <= region.end && end >= region.start) {
+            return true;
+        }
+        if (start >= region.start && start <= region.end) {
+            return true;
+        }
+
 
         // Narrow the search range
         if (end < region.start) {
@@ -351,128 +470,69 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
 
     std::set<std::string> processedReads;
 
-while (reader.GetNextRecord(record)) {
-    int readLength = record.Seq().length();
-    std::string readChrName = record.chrName();
-    std::string chromosomeName = record.chrName();
-    std::string readName = record.Qname();
+    while (reader.GetNextRecord(record)) {
+        int readLength = record.Seq().length();
+        std::string readChrName = record.chrName();
+        std::string chromosomeName = record.chrName();
+        std::string readName = record.Qname();
 
-    // if (processedReads.find(readName) != processedReads.end()) {
-    //     continue; // Skip if the read has already been processed
-    // }
+        // if (processedReads.find(readName) != processedReads.end()) {
+        //     continue; // Skip if the read has already been processed
+        // }
 
-    if (readChrName != chromosomeName) {
-        continue;
-    }
-    if (liesOnBlackRegion(excludeRegions[readChrName], chromosomeName, record.Position(), readLength)) {
-        continue;
-    }
-    if (!liesOnTargetRegion(targetRegions[readChrName], chromosomeName, record.Position(), readLength)) {
-        continue;
-    }
-    if (containsN(record.Seq())) {
-        continue;
-    }
+        if (readChrName != chromosomeName) {
+            continue;
+        }
+        if (liesOnBlackRegion(excludeRegions[readChrName], chromosomeName, record.Position(), readLength)) {
+            continue;
+        }
+        if (!liesOnTargetRegion(targetRegions[readChrName], chromosomeName, record.Position(), readLength)) {
+            continue;
+        }
+        if (containsN(record.Seq())) {
+            continue;
+        }
 
-    // processedReads.insert(readName); // Mark the read as processed
+        // processedReads.insert(readName); // Mark the read as processed
 
-    int readPos = record.Position();
-    int windowIndex = readPos / 100;
-    std::string key = readChrName + ":" + std::to_string(windowIndex);
+        int readPos = record.Position();
+        int windowIndex = readPos / 100;
+        std::string key = readChrName + ":" + std::to_string(windowIndex);
 
-    clustered_aln_t clusteredRead;
-    clusteredRead.chromosome = readChrName;
-    clusteredRead.pos = readPos;
-    clusteredRead.read = record;
-    clusteredRead.strand = record.GetStrand();
-    clusteredRead.mean_bq = record.MeanBaseQuality();
+        clustered_aln_t clusteredRead;
+        clusteredRead.chromosome = readChrName;
+        clusteredRead.pos = readPos;
+        clusteredRead.read = record;
+        clusteredRead.readName = record.Qname();
 
-    if (!inCluster) {
-        // Start a new cluster
-        clusterStart = readPos - 100; // 500 bp upstream
-        clusterEnd = readPos + 100;   // 500 bp downstream
-        currentCluster.push_back(clusteredRead);
-        inCluster = true;
-    } else {
-        // Add read to the current cluster if it's within the cluster range and the total cluster size is within 500 bp
-        if (readPos >= clusterStart && readPos <= clusterEnd && (clusterEnd - clusterStart <= 500)) {
+        clusteredRead.strand = record.GetStrand();
+        clusteredRead.mean_bq = record.MeanBaseQuality();
+
+
+        if (!inCluster) {
+            // Start a new cluster
+            clusterStart = readPos - 100; // 500 bp upstream
+            clusterEnd = readPos + 100;   // 500 bp downstream
             currentCluster.push_back(clusteredRead);
-            // Update the cluster end if this read extends beyond it
-            clusterEnd = std::max(clusterEnd, readPos + 100);
+            inCluster = true;
         } else {
-            // End the current cluster and start a new one
-            if (currentCluster.size() >= minSupport) {
-                candidateClusters[key] = currentCluster;
+            // Add read to the current cluster if it's within the cluster range and the total cluster size is within 500 bp
+            if (readPos >= clusterStart && readPos <= clusterEnd && (clusterEnd - clusterStart <= 500)) {
+                currentCluster.push_back(clusteredRead);
+                // Update the cluster end if this read extends beyond it
+                clusterEnd = std::max(clusterEnd, readPos + 100);
+            } else {
+                // End the current cluster and start a new one
+                if (currentCluster.size() >= minSupport) {
+                    candidateClusters[key] = currentCluster;
+                }
+                currentCluster.clear();
+                clusterStart = readPos - 100;
+                clusterEnd = readPos + 100;
+                currentCluster.push_back(clusteredRead);
             }
-            currentCluster.clear();
-            clusterStart = readPos - 100;
-            clusterEnd = readPos + 100;
-            currentCluster.push_back(clusteredRead);
         }
     }
-}
-
-    // while (reader.GetNextRecord(record)) {
-    //     int readLength = record.Seq().length();
-    //     std::string readChrName = record.chrName();
-    //     std::string chromosomeName = record.chrName();
-
-    //     if (readChrName != chromosomeName) {
-    //         continue;
-    //     }
-    //     if (liesOnBlackRegion(excludeRegions[readChrName], chromosomeName, record.Position(), readLength)) {
-    //         continue;
-    //     }
-    //     if (!liesOnTargetRegion(targetRegions[readChrName], chromosomeName, record.Position(), readLength)) {
-    //         continue;
-    //     }
-    //     if (containsN(record.Seq())) {
-    //         continue;
-    //     }
-    //     // std::string readName = record.Qname() + record.Seq();
-
-    //     // if (processedReads.find(readName) != processedReads.end()) {
-    //     //     continue; // Skip if the read has already been processed
-    //     // }
-
-    //     // processedReads.insert(readName); // Mark the read as processed
-
-    //     int readPos = record.Position();
-    //     int windowIndex = readPos / 100;
-    //     std::string key = readChrName + ":" + std::to_string(windowIndex);
-        
-    //     clustered_aln_t clusteredRead;
-    //     clusteredRead.chromosome = readChrName;
-    //     clusteredRead.pos = readPos;
-    //     clusteredRead.read = record;
-    //     clusteredRead.strand = record.GetStrand();
-    //     clusteredRead.mean_bq = record.MeanBaseQuality();
-
-    //     if (!inCluster) {
-    //         // Start a new cluster
-    //         clusterStart = readPos - 100; // 500 bp upstream
-    //         clusterEnd = readPos + 100;   // 500 bp downstream
-    //         currentCluster.push_back(clusteredRead);
-    //         inCluster = true;
-    //     } else {
-    //         // Add read to the current cluster if it's within the cluster range
-    //         if (readPos >= clusterStart && readPos <= clusterEnd) {
-    //             currentCluster.push_back(clusteredRead);
-    //             // Update the cluster end if this read extends beyond it
-    //             clusterEnd = std::max(clusterEnd, readPos + 100);
-    //         } else {
-    //             // End the current cluster and start a new one
-    //             if (currentCluster.size() >= minSupport) {
-    //                 candidateClusters[key] = currentCluster;
-    //             }
-    //             currentCluster.clear();
-    //             clusterStart = readPos - 100;
-    //             clusterEnd = readPos + 100;
-    //             currentCluster.push_back(clusteredRead);
-    //         }
-    //     }
-        
-    // }
 
     // Add soft-clipped reads to the clusters
     std::cout << " INFO: Rescueing soft-clipped reads for " << chromosomeName << std::endl;
@@ -507,6 +567,8 @@ while (reader.GetNextRecord(record)) {
                 clusteredRead.chromosome = scRead.chrName();
                 clusteredRead.pos = scRead.Position();
                 clusteredRead.read = scRead;
+                clusteredRead.readName = scRead.Qname();
+
                 clusteredRead.strand = scRead.GetStrand();
                 std::string readName = scRead.Qname() + scRead.Seq();
 

@@ -140,7 +140,8 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-void extractSignals(const std::string &bamFile, const std::vector<std::string> &chromosomes, const std::string &targetsBed, const std::string &excludeBed, int minOpSize, int maxSeparation, int minSupport) {
+void extractSignals(const std::string &bamFile, const std::vector<std::string> &chromosomes, const std::string &targetsBed, 
+    const std::string &excludeBed, int minOpSize, int maxSeparation, int minSupport) {
     int testThreads = 2;
     #pragma omp parallel for num_threads(testThreads) schedule(dynamic)
     for (size_t i = 0; i < chromosomes.size(); ++i) {
@@ -156,7 +157,9 @@ void extractSignals(const std::string &bamFile, const std::vector<std::string> &
     }
 }
 
-std::vector<variant_t> clusterAndAnalyze(const std::string &bamFile, const std::vector<std::string> &chromosomes, const std::string &refFasta, const std::string &targetsBed, const std::string &excludeBed, int minOpSize, int maxSeparation, int minSupport, int numThreads, bool contigsOut) {
+std::vector<variant_t> clusterAndAnalyze(const std::string &bamFile, const std::vector<std::string> &chromosomes, 
+    const std::string &refFasta, const std::string &targetsBed, const std::string &excludeBed, int minOpSize, 
+    int maxSeparation, int minSupport, int numThreads, bool contigsOut) {
     std::vector<variant_t> allVariants;
     std::mutex variantsMutex;
 

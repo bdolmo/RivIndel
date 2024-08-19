@@ -46,6 +46,8 @@ struct AlignmentResult {
     std::string spacer;
     std::string cigar;
     std::string cigarExtended;
+    std::string compactedCigar;
+
     int non_match_operations;
 };
 
@@ -169,15 +171,23 @@ AlignmentResult affine_semiglobal(
     }
     int non_match_operations = operations.size();
 
-    return AlignmentResult{
-        max_i, max_j, max_score,
-        query_start, query_end,
-        ref_start, ref_end,
-        seq1_align, seq2_align, spacer,
-        compact_cigar,
-        cigar_str,
-        non_match_operations
-    };
+    AlignmentResult aln;
+    aln.max_i = max_i;
+    aln.max_j = max_j;
+    aln.max_score = max_score;
+    aln.query_start = query_start;
+    aln.query_end = query_end;
+    aln.ref_start = ref_start;
+    aln.ref_end = ref_end;
+    aln.seq1_align = seq1_align;
+    aln.seq2_align = seq2_align;
+    aln.spacer = spacer;
+    aln.cigar = cigar_str;
+    aln.compactedCigar = cigar_str;
+    aln.cigarExtended = cigar_str;
+    aln.non_match_operations = non_match_operations;
+
+    return aln;
 }
 
 // int main() {
