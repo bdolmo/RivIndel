@@ -76,9 +76,7 @@ void classififyVariants(const std::string& tumorVcfFile, const std::string& tumo
             tumorTotal = std::max(tumorAlt + 1, tumorTotal);
             normalAlt = std::max(1, normalAlt);
             normalTotal = std::max(normalAlt + 1, normalTotal);
-            // std::cout <<key<< " " << tumorAlt << " " <<  tumorTotal- tumorAlt << " "  << normalAlt << " " <<  normalTotal - normalAlt << "\n";
             p_value = FisherExactTest(tumorAlt, tumorTotal - tumorAlt, normalAlt, normalTotal - normalAlt);
-            // std::cout << p_value << std::endl;
 
             if (p_value < 0.05) {
                 isSomatic = true;
