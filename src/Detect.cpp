@@ -180,6 +180,9 @@ bool hasOpCluster(const std::string& cigar, const int& numOp) {
 // Function to extract k-mers from a sequence
 std::vector<std::string> extractKmers(const std::string& sequence, int k) {
     std::vector<std::string> kmers;
+    if (sequence.size() < k) {
+        return kmers;  // Return an empty vector if sequence is too short
+    }
     kmers.reserve(sequence.size() - k + 1);
     for (size_t i = 0; i <= sequence.size() - k; ++i) {
         kmers.emplace_back(sequence.substr(i, k));
@@ -187,10 +190,14 @@ std::vector<std::string> extractKmers(const std::string& sequence, int k) {
     return kmers;
 }
 
+
 // Function to count k-mer frequencies
 std::unordered_map<std::string, int> countKmerFrequencies(const std::vector<std::string>& sequences, int k) {
     std::unordered_map<std::string, int> kmerCounts;
     for (const auto& sequence : sequences) {
+        if (sequence.size() < k) {
+            continue;  // Skip sequences that are too short
+        }
         std::vector<std::string> kmers = extractKmers(sequence, k);
         for (const auto& kmer : kmers) {
             kmerCounts[kmer]++;
@@ -199,8 +206,12 @@ std::unordered_map<std::string, int> countKmerFrequencies(const std::vector<std:
     return kmerCounts;
 }
 
+
 // Function to identify and correct erroneous k-mers
 std::string correctSequence(const std::string& sequence, int k, const std::unordered_map<std::string, int>& kmerCounts, int threshold) {
+    if (sequence.length() < k) {
+        return sequence;  // Return the sequence as is if it's too short to have k-mers
+    }
     std::string correctedSequence = sequence;
     for (size_t i = 0; i <= sequence.length() - k; ++i) {
         std::string kmer = sequence.substr(i, k);
@@ -226,6 +237,7 @@ std::string correctSequence(const std::string& sequence, int k, const std::unord
     return correctedSequence;
 }
 
+
 // Main function to correct a vector of sequences
 std::vector<std::string> correctSequences(const std::vector<std::string>& sequences, int k, int threshold) {
     std::vector<std::string> correctedSequences;
@@ -233,12 +245,15 @@ std::vector<std::string> correctSequences(const std::vector<std::string>& sequen
     std::unordered_map<std::string, int> kmerCounts = countKmerFrequencies(sequences, k);
     
     for (const auto& sequence : sequences) {
-        correctedSequences.push_back(correctSequence(sequence, k, kmerCounts, threshold));
+        if (sequence.size() < k) {
+            correctedSequences.push_back(sequence);  // Add the sequence unchanged if it's too short
+        } else {
+            correctedSequences.push_back(correctSequence(sequence, k, kmerCounts, threshold));
+        }
     }
     
     return correctedSequences;
 }
-
 
 
 double ComputeStrandBias(int forwardStrandCount, int reverseStrandCount) {
