@@ -141,7 +141,6 @@ void VcfWriter::writeVariant(const variant_t& var) {
             << ";ERR=" << var.errorRate
             << ";CHIMR=" << var.chimericRate
             << ";SCR=" << var.softClippedRate
-
             << ";GC=" << var.gcContent
             << ";HOML=" << var.longestHomopolymerRun
             << ";HOMN=" << var.numberOfHomopolymerRuns

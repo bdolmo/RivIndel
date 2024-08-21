@@ -108,33 +108,34 @@ int main(int argc, char *argv[]) {
             }
         }
     }
+    std::vector<variant_t> tumorVariants;
+    if (!std::filesystem::exists(vcfTumor)) {
+        // Step 1: Extract signals for tumor BAM
+        extractSignals(tumorBamFile, chromosomes, targetsBed, excludeBed, minOpSize, maxSeparation, minSupport);
 
-    // Step 1: Extract signals for tumor BAM
-    extractSignals(tumorBamFile, chromosomes, targetsBed, excludeBed, minOpSize, maxSeparation, minSupport);
+        // Step 2: Cluster and analyze for tumor BAM
+        tumorVariants = clusterAndAnalyze(tumorBamFile, chromosomes, refFasta, targetsBed, 
+            excludeBed, minOpSize, maxSeparation, minSupport, numThreads, contigsOut);
 
-    // Step 2: Cluster and analyze for tumor BAM
-    std::vector<variant_t> tumorVariants = clusterAndAnalyze(tumorBamFile, chromosomes, refFasta, targetsBed, 
-        excludeBed, minOpSize, maxSeparation, minSupport, numThreads, contigsOut);
-
-    // Write all collected variants to the tumor VCF file
-    PopulateVCF(tumorVariants, tumorBamFile, vcfTumor);
-
+        // Write all collected variants to the tumor VCF file
+        PopulateVCF(tumorVariants, tumorBamFile, vcfTumor);
+    }
     // If a normal BAM file is provided, analyze it as well
     if (!normalBamFile.empty() && !vcfNormal.empty()) {
         // Extract signals for normal BAM
-        extractSignals(normalBamFile, chromosomes, targetsBed, excludeBed, minOpSize, maxSeparation, minSupport);
+        std::vector<variant_t> normalVariants;
+        if (!std::filesystem::exists(vcfNormal)) {
+            extractSignals(normalBamFile, chromosomes, targetsBed, excludeBed, minOpSize, maxSeparation, minSupport);
 
-        // Cluster and analyze for normal BAM
-        std::vector<variant_t> normalVariants = clusterAndAnalyze(normalBamFile, chromosomes, refFasta, targetsBed, 
-            excludeBed, minOpSize, maxSeparation, minSupport, numThreads, contigsOut);
+            // Cluster and analyze for normal BAM
+            normalVariants = clusterAndAnalyze(normalBamFile, chromosomes, refFasta, targetsBed, 
+                excludeBed, minOpSize, maxSeparation, minSupport, numThreads, contigsOut);
 
-        // Write all collected variants to the normal VCF file
-        PopulateVCF(normalVariants, normalBamFile, vcfNormal);
-
-
+            // Write all collected variants to the normal VCF file
+            PopulateVCF(normalVariants, normalBamFile, vcfNormal);
+        }
         std::string outputVcf = vcfTumor + ".final.vcf";
-
-       // Compare tumor and normal variants and classify them
+        // Compare tumor and normal variants and classify them
         classififyVariants(vcfTumor, tumorBamFile, vcfNormal, outputVcf);
     }
     return 0;

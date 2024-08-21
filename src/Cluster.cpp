@@ -27,8 +27,6 @@ struct TargetRegion {
 	bool operator<(const TargetRegion& x) const {
 		return (start < x.start);
 	}
-
-
 };
 
 
@@ -253,7 +251,6 @@ bool isValidReadSignal(BamRecord& record) {
             }
             lastOpType = ch;
             currentOpLength = 0;
-
         }
     }
 
@@ -314,9 +311,7 @@ bool isValidReadSignal(BamRecord& record) {
     if (mismatchCount == 1) {
         return false;
     }
-
     return foundIndel;
-    // return foundTwoCloseIndels;
 }
 
 bool containsN(const std::string& read) {
@@ -326,40 +321,6 @@ bool containsN(const std::string& read) {
 bool binarySearch(const std::vector<TargetRegion>& vec, int n, int64_t start, int64_t end) {
     int low = 0;
     int high = n - 1;
-    // while (low <= high) {
-    //     int mid = (low + high) / 2;
-    //     const TargetRegion& region = vec[mid];
-
-    //     int overlapStart = start;
-    //     if (region.start > overlapStart) {
-    //         overlapStart = region.start;
-    //     }
-    //     int overlapEnd = start;
-    //     if (region.start < end) {
-    //         overlapEnd = region.start;
-    //     }
-
-    //     // Calculate overlap start and end
-    //     int overlapStart = std::max(start, region.start);
-    //     int overlapEnd = std::min(end, region.end);
-
-    //     // Calculate lengths
-    //     int overlapLength = overlapEnd - overlapStart + 1;
-    //     int queryLength = end - start + 1;
-    //     int regionLength = region.end - region.start + 1;
-
-    //     // Check if the overlap is at least 80% of the query length
-    //     if (overlapLength >= 0.8 * queryLength && overlapLength >= 0.8 * regionLength) {
-    //         return true;
-    //     }
-
-    //     // Narrow the search range
-    //     if (end < region.start) {
-    //         high = mid - 1;
-    //     } else {
-    //         low = mid + 1;
-    //     }
-    // }
     while (low <= high) {
         int mid = (low + high) / 2;
         const TargetRegion& region = vec[mid];
@@ -374,8 +335,6 @@ bool binarySearch(const std::vector<TargetRegion>& vec, int n, int64_t start, in
         if (start >= region.start && start <= region.end) {
             return true;
         }
-
-
         // Narrow the search range
         if (end < region.start) {
             high = mid - 1;
@@ -383,7 +342,6 @@ bool binarySearch(const std::vector<TargetRegion>& vec, int n, int64_t start, in
             low = mid + 1;
         }
     }
-
     return false;
 }
 
@@ -560,6 +518,8 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
 
             std::string chr = it->second[0].chromosome;
             std::string region = chr + ":" + std::to_string(minPos) + "-" + std::to_string(maxPos);
+
+            std::cout << "region sofclipping " << region << std::endl;
 
             auto softClippedReads = GetSoftClippedReadsInRegion(softClipReader, region);
             for (const auto& scRead : softClippedReads) {
