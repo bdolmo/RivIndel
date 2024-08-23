@@ -35,6 +35,7 @@ int main(int argc, char *argv[]) {
     int minSupport = 3;
     int numThreads = 1;
     bool contigsOut = false;
+    bool force = false;
 
     // Basic command-line argument parsing
     for (int i = 1; i < argc; ++i) {
@@ -55,6 +56,8 @@ int main(int argc, char *argv[]) {
             vcfTumor = argv[++i];
         } else if (arg == "--contigs-out" && i < argc) {
             contigsOut = true;
+        } else if (arg == "--force" && i < argc) {
+            force = true;
         } else if (arg == "--minOpSize" && i + 1 < argc) {
             std::istringstream(argv[++i]) >> minOpSize;
         } else if (arg == "--maxSeparation" && i + 1 < argc) {
@@ -109,7 +112,7 @@ int main(int argc, char *argv[]) {
         }
     }
     std::vector<variant_t> tumorVariants;
-    if (!std::filesystem::exists(vcfTumor)) {
+    if (!std::filesystem::exists(vcfTumor) || force ) {
         // Step 1: Extract signals for tumor BAM
         extractSignals(tumorBamFile, chromosomes, targetsBed, excludeBed, minOpSize, maxSeparation, minSupport);
 

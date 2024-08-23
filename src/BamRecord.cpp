@@ -9,12 +9,15 @@
 BamRecord::BamRecord() {
 }
 
-BamRecord::BamRecord(bam1_t *b, bam_hdr_t *h) : b_(b), h_(h) {
-    if (b_ == nullptr) {
-        throw std::runtime_error("Null pointer received for BAM record");
+BamRecord::BamRecord(bam1_t *b, bam_hdr_t *h) : h_(h) {
+    if (b == nullptr || h == nullptr) {
+        throw std::runtime_error("Null pointer received for BAM record or header");
     }
-    if (h_ == nullptr) {
-        throw std::runtime_error("Null pointer received from BAM header");
+
+    // Create a deep copy of bam1_t
+    b_ = bam_init1();
+    if (bam_copy1(b_, b) == nullptr) {
+        throw std::runtime_error("Failed to copy BAM record");
     }
 
     _position = b->core.pos;
@@ -23,18 +26,16 @@ BamRecord::BamRecord(bam1_t *b, bam_hdr_t *h) : b_(b), h_(h) {
 
     if (b->core.tid >= 0) {
         _chrName = std::string(h->target_name[b->core.tid]);
-    } 
-    else {
+    } else {
         _chrName = "*";
     }
     if (b->core.mtid >= 0) {
         _chrMateName = std::string(h->target_name[b->core.mtid]);
-    } 
-    else {
+    } else {
         _chrMateName = "*";
     }
-    _qname = bam_get_qname(b);  // Extract QNAME from the bam1_t structure
-    _flag = b->core.flag; // Derive the flag from the bam1_t structure
+    _qname = bam_get_qname(b);
+    _flag = b->core.flag;
     const uint32_t *cigar = bam_get_cigar(b);
     for (unsigned i = 0; i < b->core.n_cigar; ++i) {
         int cigarLen = bam_cigar_oplen(cigar[i]);
@@ -42,17 +43,14 @@ BamRecord::BamRecord(bam1_t *b, bam_hdr_t *h) : b_(b), h_(h) {
         _cigarString += std::to_string(cigarLen) + cigarOp;
     }
     _insertSize = b->core.isize;
-    // Borrowed from SeqLib
     uint8_t* p = bam_aux_get(b, "MD");
     if (!p) {
         _mdString = "";
-    }
-    else {
+    } else {
         char* pp = bam_aux2Z(p);
         if (!pp) {
             _mdString = "";
-        }
-        else {
+        } else {
             _mdString = std::string(pp);
         }       
     }
@@ -60,32 +58,29 @@ BamRecord::BamRecord(bam1_t *b, bam_hdr_t *h) : b_(b), h_(h) {
     _mapQual = b->core.qual;
     _matePos = b->core.mpos;
 
-    uint8_t *seq = bam_get_seq(b); // Get compressed sequence
-    int32_t len = b->core.l_qseq; // Get length of the sequence
-    _seq.reserve(len); // Reserve space to avoid multiple reallocations
-
+    uint8_t *seq = bam_get_seq(b);
+    int32_t len = b->core.l_qseq;
+    _seq.reserve(len);
     for (int i = 0; i < len; ++i) {
-        uint8_t base = bam_seqi(seq, i); // Get base in 4-bit integer format
+        uint8_t base = bam_seqi(seq, i);
         switch (base) {
             case 1: _seq += 'A'; break;
             case 2: _seq += 'C'; break;
             case 4: _seq += 'G'; break;
             case 8: _seq += 'T'; break;
-            case 15: _seq += 'N'; break; // 15 represents 'N' in BAM format
-            default: _seq += '?'; break; // Just in case there is an unknown base
+            case 15: _seq += 'N'; break;
+            default: _seq += '?'; break;
         }
     }
 
-    // Set the quality
     uint8_t* _qual = bam_get_qual(b);
-
-    // std::string _qualString;
     _qualString.reserve(len);
     for (int i = 0; i < len; ++i) {
-        // Convert the Phred quality score to the ASCII representation (Phred+33)
         _qualString.push_back(_qual[i]);
     }
 }
+
+
 
 std::vector<uint32_t> BamRecord::getCigarVector() const {
     std::vector<uint32_t> cigarVector;

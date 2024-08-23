@@ -140,9 +140,9 @@ AlignmentResult align_with_ssw(const std::string& read, const std::string& conti
         }
     }
 
-    std::cout << seq1_align << std::endl;
-    std::cout << spacer << std::endl;
-    std::cout << seq2_align << std::endl<< std::endl;
+    // std::cout << seq1_align << std::endl;
+    // std::cout << spacer << std::endl;
+    // std::cout << seq2_align << std::endl<< std::endl;
 
     // Create the AlignmentResult2 struct
     AlignmentResult result;
@@ -716,6 +716,49 @@ AlignmentStats CalculateAlignmentStats(const std::string& bamFile, const std::st
 }
 
 
+// Function to calculate median
+double CalculateMedian(std::vector<int>& depths) {
+    if (depths.empty()) return 0.0;
+    std::sort(depths.begin(), depths.end());
+    size_t size = depths.size();
+    if (size % 2 == 0) {
+        return (depths[size / 2 - 1] + depths[size / 2]) / 2.0;
+    } else {
+        return depths[size / 2];
+    }
+}
+
+int CalculateTotalDepthAtPosition(const std::string& bamFile, const std::string& chr, int position) {
+    int depth = 0;
+    BamReader newreader(bamFile); 
+
+    // Set region for a single position
+    std::string region = chr + ":" + std::to_string(position+1) + "-" + std::to_string(position+1);
+    newreader.SetRegion(region);
+
+    BamRecord record;
+    while (newreader.GetNextRecord(record)) {
+        depth++;
+    }
+
+    return depth;
+}
+
+double CalculateMedianCoverage(const std::string& bamFile, const std::string& chr, int position) {
+    std::vector<int> depths;
+
+    // Iterate over the window from position-9 to position
+    for (int pos = position - 10; pos <= position-1; pos++) {
+        int depthAtPos = CalculateTotalDepthAtPosition(bamFile, chr, pos);
+        depths.push_back(depthAtPos);  // Store depth at each position
+    }
+
+    // Calculate and return the median of the depths
+    return CalculateMedian(depths);
+}
+
+
+
 int CalculateTotalDepth(const std::string& bamFile, const std::string& chr, int position) {
     int totalDepth = 0;
     BamReader newreader(bamFile); 
@@ -937,9 +980,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             }
 
             const std::vector<clustered_aln_t>& reads = clusterId.second;
-
-
-            std::cout << " TOTAL_READS " << reads.size() << std::endl;
+            // std::cout << " TOTAL_READS " << reads.size() << std::endl;
 
             std::vector<std::string> tmpReads;
 
@@ -1018,18 +1059,28 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
                 int minusStrand = 0;
                 int plusStrand = 0;
-
+                std::mutex mtx;
                 for (int i=0; i<reads.size();i++) {
                     std::string readName = reads[i].readName;
                     std::string readSeq = reads[i].read.Seq();
-                    // std::cout << "read_name:" << readName << " " << readSeq << " " << contig << std::endl;
 
                     // std::string readSeq = reads[i].read.Seq();
                     std::string tag = readSeq + " " + readName;
-                    if (usedReads.find(tag) != usedReads.end()) {
-                        // Skip this read if it has already been used
-                        continue;
+                    // if (usedReads.find(tag) != usedReads.end()) {
+                    //     // Skip this read if it has already been used
+                    //     continue;
+                    // }
+                    {
+                        // Lock the mutex to safely access `usedReads`
+                        std::lock_guard<std::mutex> lock(mtx);
+
+                        // Check if the read has already been used
+                        if (usedReads.find(tag) != usedReads.end()) {
+                            continue;  // Skip if already used
+                        }
                     }
+                    // std::cout << "read_name:" << readName << " " << readSeq << " " << contig << std::endl;
+
                     mapQualVector.push_back(reads[i].read.mapQual());
                     auto [editDistance, cigar] = alignReadToContig(readSeq, contig);
                     // std::cout << editDistance << " " << cigar << std::endl<< std::endl;
@@ -1048,7 +1099,12 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         else {
                            minusStrand++;
                         }
-                        usedReads.insert(tag);
+                        // usedReads.insert(tag);
+                        {
+                            // Lock the mutex again to modify `usedReads`
+                            std::lock_guard<std::mutex> lock(mtx);
+                            usedReads.insert(tag);
+                        }
                     }
                 }
                 // std::cout << readSupport << std::endl;
@@ -1064,6 +1120,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
             for (auto& contig: contigRecVector) {
                 
+                // std::cout << " CONTIG: " << contig.seq << std::endl;
                 int match = 2;
                 int mismatch = -6;
                 int gap_open = -18;
@@ -1109,8 +1166,6 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                 if (!isvalid) {
                     continue;
                 }
-                // std::cout << "cigar extended: " << aln.cigarExtended << std::endl;
-                // std::cout << "cigar extended2: " << aln.cigarExtended << std::endl;
                 for (size_t i = 0; i < aln.cigarExtended.length(); ++i) {
                     char op = aln.cigarExtended[i];
                     if (!flag && (op == 'X' || op == 'D' || op == 'I')) {
@@ -1120,7 +1175,6 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         numOp = 1;
                         prevOp = op;
                         mod = 0;
-                        // std::cout << "start ffdfdf: " << start  << " " << aln.cigarExtended.length()<< std::endl;
                     } 
                     else if (flag) {
                         if (op == 'X' || op == 'D' || op == 'I') {
@@ -1141,7 +1195,6 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                             numOp++;
                         } else {
                             if (numOp > 1 || (numOp == 1 && prevOp != 'X')) {
-                                // std::cout << numOp << " " << "HEREE " << start << " " << end  << " " << numOperations << std::endl;
                                 mutationSegments.push_back({start, end});
                             }
                             flag = false;
@@ -1152,7 +1205,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     mutationSegments.push_back({start, end});
                 }
 
-                std::cout << "reflength:" << regionalFasta.size() << std::endl;
+                // std::cout << "reflength:" << regionalFasta.size() << std::endl;
                 for (const auto& seg : mutationSegments) {
                     int newstart = seg.start;
                     int newend = seg.end;
@@ -1211,7 +1264,6 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     variant.ref = refAllele;
                     variant.alt = altAllele;
 
-                    std::cout << variant.chr << " " <<  variant.pos << " " <<  variant.ref << " " << variant.alt << " " << contig.readSupport << std::endl;
 
                     // Initialize new readSupport count based on how many reads support the alt allele
                     int accurateReadSupport = 0;
@@ -1229,22 +1281,33 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         if (usedReads2.find(tag) != usedReads2.end()) {
                             continue;
                         }
+
+                        // Get the start and end position of the read
+                        long readStart = contig.contigReads[i].pos; // Assuming Position() returns the read start position
+                        long readEnd = readStart + readSeq.length();       // Read end is calculated based on sequence length
+
+                        // Check if the read covers the variant position
+                        if (!(readStart <= variant.pos && readEnd >= variant.pos)) {
+                            continue;  // Skip if the read does not overlap the variant position
+                        }
+
                         // Check if the corrected read sequence contains the alt allele
-                        if (readSeq.find(altAllele) != std::string::npos) {
+                        // if (readSeq.find(altAllele) != std::string::npos) {
                             // If the alternate allele is present in the read, count it toward read support
                             accurateReadSupport++;
-                            usedReads2.insert(tag);  // Mark this read as used
+                            // usedReads2.insert(tag);  // Mark this read as used
 
                             if (contig.contigReads[i].strand == '+') {
                                 plusStrand++;
                             } else {
                                 minusStrand++;
                             }
-                        }
+                        // }
                     }
 
                     variant.readSupport = accurateReadSupport;
                     variant.status = '.';
+                    std::cout << variant.chr << " " <<  variant.pos << " " <<  variant.ref << " " << variant.alt << " " << variant.readSupport << std::endl;
 
                     AlignmentStats alnStats = CalculateAlignmentStats(bamFile, variant.chr, variant.pos);
 
@@ -1253,7 +1316,9 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     variant.softClippedRate = alnStats.softClippedRate;
 
                     variant.mapQual = calculateMean(mapQualVector);
-                    variant.totalDepth = CalculateTotalDepth(bamFile, variant.chr, variant.pos);
+
+                    variant.totalDepth =CalculateMedianCoverage(bamFile, variant.chr, variant.pos);
+                    // variant.totalDepth = CalculateTotalDepth(bamFile, variant.chr, variant.pos);
                     int refDepth = variant.totalDepth - variant.readSupport;
                     variant.alleleDepth = std::to_string(refDepth) + "," + std::to_string(variant.readSupport);
                     variant.alleleFrequency = static_cast<float>(variant.readSupport) / variant.totalDepth;

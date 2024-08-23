@@ -73,17 +73,21 @@ std::map<std::string, std::vector<TargetRegion>> parseBedFile2(const std::string
     return targetRegionsMap;
 }
 
+std::vector<BamRecord> GetSoftClippedReadsInRegion(const std::string& bamFile, const std::string& region, int minSoftClip = 5) {
 
-std::vector<BamRecord> GetSoftClippedReadsInRegion(BamReader& reader, const std::string& region, int minSoftClip = 5) {
+    BamReader reader(bamFile);
     std::vector<BamRecord> softClippedReads;
     reader.SetRegion(region);
     BamRecord record;
 
     while (reader.GetNextRecord(record)) {
+
+        // std::cout <<"bam QNAME "<<  record.Qname() << std::endl;
+
+        BamRecord newRecord = record;  // Copy the record to a new instance
         std::string cigar = record.cigarString();
         std::string mdTag = record.MDtag(); // Assuming getMDTag() fetches the MD tag from the BAM record.
         size_t cigarLength = cigar.length();
-
         bool hasValidSoftClip = false;
         int leadingSoftClips = 0;
         int trailingSoftClips = 0;
@@ -120,79 +124,37 @@ std::vector<BamRecord> GetSoftClippedReadsInRegion(BamReader& reader, const std:
         bool mismatchInFirst10 = false;
         bool mismatchInLast10 = false;
 
-        for (size_t i = 0; i < mdTag.size(); ++i) {
-            char ch = mdTag[i];
-            if (!isdigit(ch) && ch != '^') {
-                ++mismatchCount;
-                if (posInRead < 10) {
-                    mismatchInFirst10 = true;
-                }
-                if (posInRead >= record.Seq().size() - 10) {
-                    mismatchInLast10 = true;
-                }
-                ++posInRead;
-            } else if (isdigit(ch)) {
-                int num = 0;
-                while (i < mdTag.size() && isdigit(mdTag[i])) {
-                    num = num * 10 + (mdTag[i] - '0');
-                    ++i;
-                }
-                --i; // Compensate for the outer loop increment
-                posInRead += num;
-            }
-        }
+        // for (size_t i = 0; i < mdTag.size(); ++i) {
+        //     char ch = mdTag[i];
+        //     if (!isdigit(ch) && ch != '^') {
+        //         ++mismatchCount;
+        //         if (posInRead < 10) {
+        //             mismatchInFirst10 = true;
+        //         }
+        //         if (posInRead >= record.Seq().size() - 10) {
+        //             mismatchInLast10 = true;
+        //         }
+        //         ++posInRead;
+        //     } else if (isdigit(ch)) {
+        //         int num = 0;
+        //         while (i < mdTag.size() && isdigit(mdTag[i])) {
+        //             num = num * 10 + (mdTag[i] - '0');
+        //             ++i;
+        //         }
+        //         --i; // Compensate for the outer loop increment
+        //         posInRead += num;
+        //     }
+        // }
 
         // If any valid soft clip or mismatch in the first or last 10 bases, add to the results
         if (hasValidSoftClip || mismatchInFirst10 || mismatchInLast10) {
-            softClippedReads.push_back(record);
+            softClippedReads.push_back(newRecord);  // Push a new copy of the record
         }
     }
 
     return softClippedReads;
 }
 
-
-// std::vector<BamRecord> GetSoftClippedReadsInRegion(BamReader& reader, const std::string& region, int minSoftClip = 10) {
-//     std::vector<BamRecord> softClippedReads;
-//     reader.SetRegion(region);
-//     BamRecord record;
-
-//     while (reader.GetNextRecord(record)) {
-//         std::string cigar = record.cigarString();
-//         size_t cigarLength = cigar.length();
-//         if (cigarLength > 1) {
-//             int leadingSoftClips = 0;
-//             int trailingSoftClips = 0;
-//             bool leading = true;
-
-//             for (size_t i = 0; i < cigarLength; ++i) {
-//                 char c = cigar[i];
-//                 if (isdigit(c)) {
-//                     int length = 0;
-//                     while (isdigit(c)) {
-//                         length = length * 10 + (c - '0');
-//                         c = cigar[++i];
-//                     }
-//                     if (c == 'S') {
-//                         if (leading) {
-//                             leadingSoftClips = length;
-//                         } else {
-//                             trailingSoftClips = length;
-//                         }
-//                     } else {
-//                         leading = false;
-//                     }
-//                 }
-//             }   
-
-//             if (leadingSoftClips >= minSoftClip || trailingSoftClips >= minSoftClip) {
-//                 // std::cout << cigar << " " << leadingSoftClips << " " << trailingSoftClips << std::endl;
-//                 softClippedReads.push_back(record);
-//             }
-//         }
-//     }
-//     return softClippedReads;
-// }
 
 bool isOverlap(int start1, int end1, int start2, int end2) {
     return (start1 <= end2 && end1 >= start2);
@@ -521,8 +483,12 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
 
             std::cout << "region sofclipping " << region << std::endl;
 
-            auto softClippedReads = GetSoftClippedReadsInRegion(softClipReader, region);
-            for (const auto& scRead : softClippedReads) {
+            std::vector<BamRecord> softClippedReads = GetSoftClippedReadsInRegion(bamFile, region);
+            std::cout << softClippedReads.size() << std::endl;
+
+            // for (auto& scRead : softClippedReads) {
+            for (int i = 0; i<softClippedReads.size(); i++) {
+                BamRecord scRead = softClippedReads[i];
                 clustered_aln_t clusteredRead;
                 clusteredRead.chromosome = scRead.chrName();
                 clusteredRead.pos = scRead.Position();
@@ -531,7 +497,7 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
 
                 clusteredRead.strand = scRead.GetStrand();
                 std::string readName = scRead.Qname() + scRead.Seq();
-
+                // std::cout << clusteredRead.readName << " "  << scRead.Seq() << std::endl;
                 // if (processedReads.find(readName) != processedReads.end()) {
                 //     continue; // Skip if the read has already been processed
                 // }
