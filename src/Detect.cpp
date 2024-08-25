@@ -1091,6 +1091,9 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
         std::vector<variant_t> localVariants;
         std::vector<Locus> locusData;
 
+        std::unordered_set<std::string> threadLocalUsedReads;
+        std::unordered_set<std::string> threadLocalUsedReads2;
+
         #pragma omp for schedule(dynamic, 1)
         for (size_t idx = 0; idx < clusteredReads.size(); ++idx) {
             auto it = std::next(clusteredReads.begin(), idx);
@@ -1133,7 +1136,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
             RefFasta ref(refFasta);
             refStart = std::max(1L, refStart - flankSpace);  // Adjust for 1-based indexing
             refEnd = std::min(static_cast<long>(chromosomeLength), refEnd + flankSpace+1);
-            std::cout << " INFO: Interrogating "<< chr << ":" << refStart << "-" << refEnd << std::endl;
+            // std::cout << " INFO: Interrogating "<< chr << ":" << refStart << "-" << refEnd << std::endl;
 
             Locus newLocus;
             newLocus.chromosome = chr;
@@ -1187,15 +1190,20 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     std::string readSeq = reads[i].read.Seq();
 
                     std::string tag = readSeq + " " + readName;
-                    {
-                        // Lock the mutex to safely access `usedReads`
-                        std::lock_guard<std::mutex> lock(mtx);
-
-                        // Check if the read has already been used
-                        if (usedReads.find(tag) != usedReads.end()) {
-                            continue;  // Skip if already used
-                        }
+                    // Use thread-local copy of usedReads to avoid race conditions
+                    if (threadLocalUsedReads.find(tag) != threadLocalUsedReads.end()) {
+                        continue;  // Skip if already used in this thread
                     }
+
+                    // {
+                    //     // Lock the mutex to safely access `usedReads`
+                    //     std::lock_guard<std::mutex> lock(mtx);
+
+                    //     // Check if the read has already been used
+                    //     if (usedReads.find(tag) != usedReads.end()) {
+                    //         continue;  // Skip if already used
+                    //     }
+                    // }
                     mapQualVector.push_back(reads[i].read.mapQual());
                     auto [editDistance, cigar] = alignReadToContig(readSeq, contig);
                     // std::cout << editDistance << " " << cigar << std::endl<< std::endl;
@@ -1214,11 +1222,14 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         else {
                            minusStrand++;
                         }
-                        {
-                            // Lock the mutex again to modify `usedReads`
-                            std::lock_guard<std::mutex> lock(mtx);
-                            usedReads.insert(tag);
-                        }
+                        threadLocalUsedReads.insert(tag);
+
+
+                        // {
+                        //     // Lock the mutex again to modify `usedReads`
+                        //     std::lock_guard<std::mutex> lock(mtx);
+                        //     usedReads.insert(tag);
+                        // }
                     }
                 }
                 // std::cout << readSupport << std::endl;
@@ -1391,16 +1402,19 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         std::string readName = contig.contigReads[i].readName;  // Retrieve read name
                         std::string readSeq = contig.contigReads[i].read.Seq(); // Retrieve the corrected read sequence
                         std::string tag = readSeq + " " + readName;
-
-                        {
-                            // Lock the mutex before accessing the shared usedReads2 set
-                            std::lock_guard<std::mutex> lock(mtx);
-
-                            // Skip this read if it has already been used
-                            if (usedReads2.find(tag) != usedReads2.end()) {
-                                continue;
-                            }
+                        if (threadLocalUsedReads2.find(tag) != threadLocalUsedReads2.end()) {
+                            continue;  // Skip if already used in this thread
                         }
+
+                        // {
+                        //     // Lock the mutex before accessing the shared usedReads2 set
+                        //     std::lock_guard<std::mutex> lock(mtx);
+
+                        //     // Skip this read if it has already been used
+                        //     if (usedReads2.find(tag) != usedReads2.end()) {
+                        //         continue;
+                        //     }
+                        // }
 
                         // Get the start and end position of the read
                         long readStart = contig.contigReads[i].pos;              // Assuming Position() returns the read start position
@@ -1412,12 +1426,13 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         }
 
                         // Lock the mutex when updating shared variables
-                        {
+                        // {
                             std::lock_guard<std::mutex> lock(mtx);
 
                             // If the alternate allele is present in the read, count it toward read support
                             accurateReadSupport++;
-                            usedReads2.insert(tag);  // Mark this read as used
+                            // usedReads2.insert(tag);  // Mark this read as used
+                            threadLocalUsedReads2.insert(tag);
 
                             // Update the strand-specific support counts
                             if (contig.contigReads[i].strand == '+') {
@@ -1425,7 +1440,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                             } else {
                                 minusStrand++;
                             }
-                        }
+                        // }
                     }
 
 
