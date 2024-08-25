@@ -634,31 +634,60 @@ std::vector<BamRecord> GetSoftClippedReads(BamReader& reader) {
     return softClippedReads;
 }
 
+// Helper function to calculate median
+double CalculateMedian(std::vector<int>& depths) {
+    if (depths.empty()) return 0.0;
+    std::sort(depths.begin(), depths.end());
+    size_t size = depths.size();
+    if (size % 2 == 0) {
+        return (depths[size / 2 - 1] + depths[size / 2]) / 2.0;
+    } else {
+        return depths[size / 2];
+    }
+}
+
 struct AlignmentStats {
     double errorRate;
     double chimericRate;
     double softClippedRate;
+    double medianCoverage;
 };
 
-// Function to calculate various alignment statistics
+// Function to calculate various alignment statistics including median coverage
 AlignmentStats CalculateAlignmentStats(const std::string& bamFile, const std::string& chr, int position) {
     int totalBases = 0;
     int mismatches = 0;
     int totalReads = 0;
     int chimericReads = 0;
     int softClippedReads = 0;
-    BamReader newreader(bamFile); 
 
+    BamReader newreader(bamFile);
+
+    // Set the region for the desired window
     std::string region = chr + ":" + std::to_string(position - 100) + "-" + std::to_string(position + 100);
     newreader.SetRegion(region);
+
     int maxReads = 500;
     int count = 0;
     BamRecord record;
+
+    // Use a map to track the depth at each position
+    std::map<int, int> depthMap;
+
     while (newreader.GetNextRecord(record)) {
         totalReads++;
         std::string mdTag = record.MDtag();
         totalBases += record.Seq().length();
         count++;
+
+        // Track the read depth at the positions spanned by this read
+        long readStart = record.Position();
+        long readEnd = readStart + record.Seq().length();
+        for (long pos = readStart; pos < readEnd; ++pos) {
+            if (pos >= position - 10 && pos <= position) {  // Only count positions in the window
+                depthMap[pos]++;
+            }
+        }
 
         // Check for chimeric reads (mapped to different chromosomes or far apart)
         if (record.chrName() != record.chrMateName()) {
@@ -688,7 +717,7 @@ AlignmentStats CalculateAlignmentStats(const std::string& bamFile, const std::st
                 while (i < mdTag.size() && std::isdigit(mdTag[i])) {
                     ++i;
                 }
-                --i; // Correct the position after exiting the while loop
+                --i;  // Correct the position after exiting the while loop
             } else {
                 // Count mismatches (non-numeric parts of the MD tag)
                 if (mdTag[i] == '^') {
@@ -702,6 +731,19 @@ AlignmentStats CalculateAlignmentStats(const std::string& bamFile, const std::st
         }
     }
 
+    // Collect depths from the map for the range [position-10, position]
+    std::vector<int> depths;
+    for (int pos = position - 10; pos <= position; ++pos) {
+        if (depthMap.find(pos) != depthMap.end()) {
+            depths.push_back(depthMap[pos]);
+        } else {
+            depths.push_back(0);  // If no reads cover this position, assume depth of 0
+        }
+    }
+
+    // Calculate the median depth
+    double medianDepth = CalculateMedian(depths);
+
     AlignmentStats stats;
     if (totalBases == 0) {
         stats.errorRate = 0.0;
@@ -709,53 +751,138 @@ AlignmentStats CalculateAlignmentStats(const std::string& bamFile, const std::st
         stats.errorRate = static_cast<double>(mismatches) / totalBases;
     }
     stats.chimericRate = static_cast<double>(chimericReads) / totalReads;
-
     stats.softClippedRate = static_cast<double>(softClippedReads) / totalReads;
+    stats.medianCoverage = medianDepth;
 
     return stats;
 }
 
 
-// Function to calculate median
-double CalculateMedian(std::vector<int>& depths) {
-    if (depths.empty()) return 0.0;
-    std::sort(depths.begin(), depths.end());
-    size_t size = depths.size();
-    if (size % 2 == 0) {
-        return (depths[size / 2 - 1] + depths[size / 2]) / 2.0;
-    } else {
-        return depths[size / 2];
-    }
-}
 
-int CalculateTotalDepthAtPosition(const std::string& bamFile, const std::string& chr, int position) {
-    int depth = 0;
-    BamReader newreader(bamFile); 
+// struct AlignmentStats {
+//     double errorRate;
+//     double chimericRate;
+//     double softClippedRate;
+// };
 
-    // Set region for a single position
-    std::string region = chr + ":" + std::to_string(position+1) + "-" + std::to_string(position+1);
-    newreader.SetRegion(region);
+// // Function to calculate various alignment statistics
+// AlignmentStats CalculateAlignmentStats(const std::string& bamFile, const std::string& chr, int position) {
+//     int totalBases = 0;
+//     int mismatches = 0;
+//     int totalReads = 0;
+//     int chimericReads = 0;
+//     int softClippedReads = 0;
+//     BamReader newreader(bamFile); 
 
-    BamRecord record;
-    while (newreader.GetNextRecord(record)) {
-        depth++;
-    }
+//     std::string region = chr + ":" + std::to_string(position - 100) + "-" + std::to_string(position + 100);
+//     newreader.SetRegion(region);
+//     int maxReads = 500;
+//     int count = 0;
+//     BamRecord record;
+//     while (newreader.GetNextRecord(record)) {
+//         totalReads++;
+//         std::string mdTag = record.MDtag();
+//         totalBases += record.Seq().length();
+//         count++;
 
-    return depth;
-}
+//         // Check for chimeric reads (mapped to different chromosomes or far apart)
+//         if (record.chrName() != record.chrMateName()) {
+//             chimericReads++;
+//         }
 
-double CalculateMedianCoverage(const std::string& bamFile, const std::string& chr, int position) {
-    std::vector<int> depths;
+//         // Check for soft-clipped reads
+//         std::string cigar = record.cigarString();
+//         bool hasSoftClip = cigar.find('S') != std::string::npos;
+//         if (hasSoftClip) {
+//             softClippedReads++;
+//         }
 
-    // Iterate over the window from position-9 to position
-    for (int pos = position - 10; pos <= position-1; pos++) {
-        int depthAtPos = CalculateTotalDepthAtPosition(bamFile, chr, pos);
-        depths.push_back(depthAtPos);  // Store depth at each position
-    }
+//         if (count > maxReads) {
+//             break;
+//         }
 
-    // Calculate and return the median of the depths
-    return CalculateMedian(depths);
-}
+//         bool foundDel = false;
+//         // Manually parse the MD tag to find mismatches
+//         for (size_t i = 0; i < mdTag.size(); ++i) {
+//             if (std::isdigit(mdTag[i])) {
+//                 if (foundDel) {
+//                     foundDel = false;
+//                 }
+
+//                 // Skip the number of matched bases
+//                 while (i < mdTag.size() && std::isdigit(mdTag[i])) {
+//                     ++i;
+//                 }
+//                 --i; // Correct the position after exiting the while loop
+//             } else {
+//                 // Count mismatches (non-numeric parts of the MD tag)
+//                 if (mdTag[i] == '^') {
+//                     foundDel = true;
+//                     continue;
+//                 }
+//                 if (!foundDel && std::isalpha(mdTag[i])) {
+//                     mismatches++;
+//                 }
+//             }
+//         }
+//     }
+
+//     AlignmentStats stats;
+//     if (totalBases == 0) {
+//         stats.errorRate = 0.0;
+//     } else {
+//         stats.errorRate = static_cast<double>(mismatches) / totalBases;
+//     }
+//     stats.chimericRate = static_cast<double>(chimericReads) / totalReads;
+
+//     stats.softClippedRate = static_cast<double>(softClippedReads) / totalReads;
+
+//     return stats;
+// }
+
+
+// // Function to calculate median
+// double CalculateMedian(std::vector<int>& depths) {
+//     if (depths.empty()) return 0.0;
+//     std::sort(depths.begin(), depths.end());
+//     size_t size = depths.size();
+//     if (size % 2 == 0) {
+//         return (depths[size / 2 - 1] + depths[size / 2]) / 2.0;
+//     } else {
+//         return depths[size / 2];
+//     }
+// }
+
+// int CalculateTotalDepthAtPosition(const std::string& bamFile, const std::string& chr, int position) {
+//     int depth = 0;
+//     BamReader newreader(bamFile); 
+
+//     // Set region for a single position
+//     std::string region = chr + ":" + std::to_string(position+1) + "-" + std::to_string(position+1);
+//     newreader.SetRegion(region);
+
+//     BamRecord record;
+//     while (newreader.GetNextRecord(record)) {
+//         depth++;
+//     }
+
+//     return depth;
+// }
+
+// double CalculateMedianCoverage(const std::string& bamFile, const std::string& chr, int position) {
+//     std::vector<int> depths;
+
+//     // Iterate over the window from position-9 to position
+//     for (int pos = position - 10; pos <= position-1; pos++) {
+//         int depthAtPos = CalculateTotalDepthAtPosition(bamFile, chr, pos);
+//         depths.push_back(depthAtPos);  // Store depth at each position
+//     }
+
+//     // Calculate and return the median of the depths
+//     return CalculateMedian(depths);
+// }
+
+
 
 
 
@@ -895,11 +1022,6 @@ std::vector<std::string> correctReads(std::vector<std::string>& reads) {
     // Initialize default options
     fml_opt_t opt;
     fml_opt_init(&opt);
-
-    // Optionally, set custom parameters for error correction
-    // opt.ec_k = 11;        // Set k-mer length for error correction
-    // opt.min_asm_ovlp = 11; // Set minimum overlap length during assembly
-    // opt.min_merge_len = 11; // Set minimum length for merging overlaps
 
     // Perform error correction
     float kcov = fml_correct(&opt, n_seqs, seqs);
@@ -1064,12 +1186,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     std::string readName = reads[i].readName;
                     std::string readSeq = reads[i].read.Seq();
 
-                    // std::string readSeq = reads[i].read.Seq();
                     std::string tag = readSeq + " " + readName;
-                    // if (usedReads.find(tag) != usedReads.end()) {
-                    //     // Skip this read if it has already been used
-                    //     continue;
-                    // }
                     {
                         // Lock the mutex to safely access `usedReads`
                         std::lock_guard<std::mutex> lock(mtx);
@@ -1079,8 +1196,6 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                             continue;  // Skip if already used
                         }
                     }
-                    // std::cout << "read_name:" << readName << " " << readSeq << " " << contig << std::endl;
-
                     mapQualVector.push_back(reads[i].read.mapQual());
                     auto [editDistance, cigar] = alignReadToContig(readSeq, contig);
                     // std::cout << editDistance << " " << cigar << std::endl<< std::endl;
@@ -1099,7 +1214,6 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                         else {
                            minusStrand++;
                         }
-                        // usedReads.insert(tag);
                         {
                             // Lock the mutex again to modify `usedReads`
                             std::lock_guard<std::mutex> lock(mtx);
@@ -1205,7 +1319,6 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     mutationSegments.push_back({start, end});
                 }
 
-                // std::cout << "reflength:" << regionalFasta.size() << std::endl;
                 for (const auto& seg : mutationSegments) {
                     int newstart = seg.start;
                     int newend = seg.end;
@@ -1272,38 +1385,50 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     int minusStrand = 0;
 
                     // contig.contigReads
+                    std::mutex mtx;  // Declare a mutex for synchronizing access to shared resources
+
                     for (int i = 0; i < contig.contigReads.size(); i++) {
-                        std::string readName = contig.contigReads[i].readName; // Retrieve read name
-                        std::string readSeq = contig.contigReads[i].read.Seq();       // Retrieve the corrected read sequence
+                        std::string readName = contig.contigReads[i].readName;  // Retrieve read name
+                        std::string readSeq = contig.contigReads[i].read.Seq(); // Retrieve the corrected read sequence
                         std::string tag = readSeq + " " + readName;
 
-                        // Skip this read if it has already been used
-                        if (usedReads2.find(tag) != usedReads2.end()) {
-                            continue;
+                        {
+                            // Lock the mutex before accessing the shared usedReads2 set
+                            std::lock_guard<std::mutex> lock(mtx);
+
+                            // Skip this read if it has already been used
+                            if (usedReads2.find(tag) != usedReads2.end()) {
+                                continue;
+                            }
                         }
 
                         // Get the start and end position of the read
-                        long readStart = contig.contigReads[i].pos; // Assuming Position() returns the read start position
-                        long readEnd = readStart + readSeq.length();       // Read end is calculated based on sequence length
+                        long readStart = contig.contigReads[i].pos;              // Assuming Position() returns the read start position
+                        long readEnd = readStart + readSeq.length();             // Read end is calculated based on sequence length
 
                         // Check if the read covers the variant position
                         if (!(readStart <= variant.pos && readEnd >= variant.pos)) {
                             continue;  // Skip if the read does not overlap the variant position
                         }
 
-                        // Check if the corrected read sequence contains the alt allele
-                        // if (readSeq.find(altAllele) != std::string::npos) {
+                        // Lock the mutex when updating shared variables
+                        {
+                            std::lock_guard<std::mutex> lock(mtx);
+
                             // If the alternate allele is present in the read, count it toward read support
                             accurateReadSupport++;
-                            // usedReads2.insert(tag);  // Mark this read as used
+                            usedReads2.insert(tag);  // Mark this read as used
 
+                            // Update the strand-specific support counts
                             if (contig.contigReads[i].strand == '+') {
                                 plusStrand++;
                             } else {
                                 minusStrand++;
                             }
-                        // }
+                        }
                     }
+
+
 
                     variant.readSupport = accurateReadSupport;
                     variant.status = '.';
@@ -1317,7 +1442,7 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
 
                     variant.mapQual = calculateMean(mapQualVector);
 
-                    variant.totalDepth =CalculateMedianCoverage(bamFile, variant.chr, variant.pos);
+                    variant.totalDepth =alnStats.medianCoverage;
                     // variant.totalDepth = CalculateTotalDepth(bamFile, variant.chr, variant.pos);
                     int refDepth = variant.totalDepth - variant.readSupport;
                     variant.alleleDepth = std::to_string(refDepth) + "," + std::to_string(variant.readSupport);
@@ -1338,13 +1463,13 @@ std::vector<variant_t> DetectComplexIndels(std::map<std::string, std::vector<clu
                     variant.longestDintdRun = longestDintd;
                     variant.numberOfDintd = numberOfDintd;
 
-                    // variant.plusStrand = contig.plusStrand;
-                    // variant.minusStrand = contig.minusStrand;
-                    // variant.strandBias = ComputeStrandBias(contig.plusStrand, contig.minusStrand);
+                    variant.plusStrand = contig.plusStrand;
+                    variant.minusStrand = contig.minusStrand;
+                    variant.strandBias = ComputeStrandBias(contig.plusStrand, contig.minusStrand);
 
-                    variant.plusStrand = plusStrand;
-                    variant.minusStrand = minusStrand;
-                    variant.strandBias = ComputeStrandBias(plusStrand, minusStrand);
+                    // variant.plusStrand = plusStrand;
+                    // variant.minusStrand = minusStrand;
+                    // variant.strandBias = ComputeStrandBias(plusStrand, minusStrand);
 
                     uniqueVariants.push(variant);
                 }

@@ -481,10 +481,10 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
             std::string chr = it->second[0].chromosome;
             std::string region = chr + ":" + std::to_string(minPos) + "-" + std::to_string(maxPos);
 
-            std::cout << "region sofclipping " << region << std::endl;
+            // std::cout << "region sofclipping " << region << std::endl;
 
             std::vector<BamRecord> softClippedReads = GetSoftClippedReadsInRegion(bamFile, region);
-            std::cout << softClippedReads.size() << std::endl;
+            // std::cout << softClippedReads.size() << std::endl;
 
             // for (auto& scRead : softClippedReads) {
             for (int i = 0; i<softClippedReads.size(); i++) {
@@ -497,21 +497,12 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
 
                 clusteredRead.strand = scRead.GetStrand();
                 std::string readName = scRead.Qname() + scRead.Seq();
-                // std::cout << clusteredRead.readName << " "  << scRead.Seq() << std::endl;
-                // if (processedReads.find(readName) != processedReads.end()) {
-                //     continue; // Skip if the read has already been processed
-                // }
-
                 double meanBaseQual = scRead.MeanBaseQuality();
                 clusteredRead.mean_bq = meanBaseQual;
-                // if (processedReads.find(readName) == processedReads.end()) {
-                //     it->second.push_back(clusteredRead);
-                //     processedReads.insert(readName);
-                // }
                 it->second.push_back(clusteredRead);
             }
  
-            clustersFile << chr << "\t" << minPos << "\t" << maxPos << "\t" << it->second.size() << "\n";
+            // clustersFile << chr << "\t" << minPos << "\t" << maxPos << "\t" << it->second.size() << "\n";
             ++it;
         }
     }
