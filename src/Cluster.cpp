@@ -73,27 +73,101 @@ std::map<std::string, std::vector<TargetRegion>> parseBedFile2(const std::string
     return targetRegionsMap;
 }
 
-std::vector<BamRecord> GetSoftClippedReadsInRegion(const std::string& bamFile, const std::string& region, int minSoftClip = 5) {
+// std::vector<BamRecord> GetSoftClippedReadsInRegion(const std::string& bamFile, const std::string& region, int minSoftClip = 5) {
 
-    BamReader reader(bamFile);
+//     BamReader reader(bamFile);
+//     std::vector<BamRecord> softClippedReads;
+//     reader.SetRegion(region);
+//     BamRecord record;
+
+//     while (reader.GetNextRecord(record)) {
+
+//         // std::cout <<"bam QNAME "<<  record.Qname() << std::endl;
+
+//         BamRecord newRecord = record;  // Copy the record to a new instance
+//         std::string cigar = record.cigarString();
+//         std::string mdTag = record.MDtag(); // Assuming getMDTag() fetches the MD tag from the BAM record.
+//         size_t cigarLength = cigar.length();
+//         bool hasValidSoftClip = false;
+//         int leadingSoftClips = 0;
+//         int trailingSoftClips = 0;
+//         bool leading = true;
+
+//         // Parse CIGAR string to find soft clips
+//         for (size_t i = 0; i < cigarLength; ++i) {
+//             char c = cigar[i];
+//             if (isdigit(c)) {
+//                 int length = 0;
+//                 while (isdigit(c)) {
+//                     length = length * 10 + (c - '0');
+//                     c = cigar[++i];
+//                 }
+//                 if (c == 'S') {
+//                     if (leading) {
+//                         leadingSoftClips = length;
+//                     } else {
+//                         trailingSoftClips = length;
+//                     }
+//                 } else {
+//                     leading = false;
+//                 }
+//             }
+//         }
+
+//         if (leadingSoftClips >= minSoftClip || trailingSoftClips >= minSoftClip) {
+//             hasValidSoftClip = true;
+//         }
+
+//         // Parse MD tag to find mismatches in the first or last 10 bases
+//         int mismatchCount = 0;
+//         int posInRead = 0;
+//         bool mismatchInFirst10 = false;
+//         bool mismatchInLast10 = false;
+
+//         // for (size_t i = 0; i < mdTag.size(); ++i) {
+//         //     char ch = mdTag[i];
+//         //     if (!isdigit(ch) && ch != '^') {
+//         //         ++mismatchCount;
+//         //         if (posInRead < 10) {
+//         //             mismatchInFirst10 = true;
+//         //         }
+//         //         if (posInRead >= record.Seq().size() - 10) {
+//         //             mismatchInLast10 = true;
+//         //         }
+//         //         ++posInRead;
+//         //     } else if (isdigit(ch)) {
+//         //         int num = 0;
+//         //         while (i < mdTag.size() && isdigit(mdTag[i])) {
+//         //             num = num * 10 + (mdTag[i] - '0');
+//         //             ++i;
+//         //         }
+//         //         --i; // Compensate for the outer loop increment
+//         //         posInRead += num;
+//         //     }
+//         // }
+
+//         // If any valid soft clip or mismatch in the first or last 10 bases, add to the results
+//         if (hasValidSoftClip || mismatchInFirst10 || mismatchInLast10) {
+//             softClippedReads.push_back(newRecord);  // Push a new copy of the record
+//         }
+//     }
+
+//     return softClippedReads;
+// }
+
+std::vector<BamRecord> GetSoftClippedReadsInRegion(BamReader& reader, const std::string& region, int minSoftClip = 5) {
     std::vector<BamRecord> softClippedReads;
     reader.SetRegion(region);
     BamRecord record;
 
     while (reader.GetNextRecord(record)) {
-
-        // std::cout <<"bam QNAME "<<  record.Qname() << std::endl;
-
-        BamRecord newRecord = record;  // Copy the record to a new instance
-        std::string cigar = record.cigarString();
-        std::string mdTag = record.MDtag(); // Assuming getMDTag() fetches the MD tag from the BAM record.
+        // Get CIGAR string and analyze it for soft-clips
+        const std::string& cigar = record.cigarString();
         size_t cigarLength = cigar.length();
-        bool hasValidSoftClip = false;
-        int leadingSoftClips = 0;
-        int trailingSoftClips = 0;
+        int leadingSoftClips = 0, trailingSoftClips = 0;
         bool leading = true;
 
-        // Parse CIGAR string to find soft clips
+        // Parse CIGAR string for soft-clips
         for (size_t i = 0; i < cigarLength; ++i) {
             char c = cigar[i];
             if (isdigit(c)) {
@@ -109,51 +183,19 @@ std::vector<BamRecord> GetSoftClippedReadsInRegion(const std::string& bamFile, c
                         trailingSoftClips = length;
                     }
                 } else {
-                    leading = false;
+                    leading = false;  // After first non-S, switch to trailing mode
                 }
             }
         }
 
         if (leadingSoftClips >= minSoftClip || trailingSoftClips >= minSoftClip) {
-            hasValidSoftClip = true;
-        }
-
-        // Parse MD tag to find mismatches in the first or last 10 bases
-        int mismatchCount = 0;
-        int posInRead = 0;
-        bool mismatchInFirst10 = false;
-        bool mismatchInLast10 = false;
-
-        // for (size_t i = 0; i < mdTag.size(); ++i) {
-        //     char ch = mdTag[i];
-        //     if (!isdigit(ch) && ch != '^') {
-        //         ++mismatchCount;
-        //         if (posInRead < 10) {
-        //             mismatchInFirst10 = true;
-        //         }
-        //         if (posInRead >= record.Seq().size() - 10) {
-        //             mismatchInLast10 = true;
-        //         }
-        //         ++posInRead;
-        //     } else if (isdigit(ch)) {
-        //         int num = 0;
-        //         while (i < mdTag.size() && isdigit(mdTag[i])) {
-        //             num = num * 10 + (mdTag[i] - '0');
-        //             ++i;
-        //         }
-        //         --i; // Compensate for the outer loop increment
-        //         posInRead += num;
-        //     }
-        // }
-
-        // If any valid soft clip or mismatch in the first or last 10 bases, add to the results
-        if (hasValidSoftClip || mismatchInFirst10 || mismatchInLast10) {
-            softClippedReads.push_back(newRecord);  // Push a new copy of the record
+            softClippedReads.push_back(record);  // Store the record directly, avoid extra copy
         }
     }
 
     return softClippedReads;
 }
+
 
 
 bool isOverlap(int start1, int end1, int start2, int end2) {
@@ -455,25 +497,77 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
     }
 
     // Add soft-clipped reads to the clusters
+    // std::cout << " INFO: Rescueing soft-clipped reads for " << chromosomeName << std::endl;
+
+    // // Remove clusters that do not meet the minimum read support and add nearby soft-clipped reads
+    // BamReader softClipReader(bamFile);
+    // for (auto it = candidateClusters.begin(); it != candidateClusters.end();) {
+    //     if (it->second.size() < minSupport) {
+    //         it = candidateClusters.erase(it);
+    //     }
+    //     else {
+    //         int64_t minPos = 9000000000000000;
+    //         int64_t maxPos = 0;
+    //         for (auto& i : it->second) {
+    //             int64_t rStart = i.pos;
+    //             int64_t rEnd = i.pos+i.read.Seq().length();
+
+    //             if (rStart <=  minPos) {
+    //                 minPos = rStart;
+    //             }
+    //             if (rEnd >= maxPos+i.read.Seq().length()) {
+    //                 maxPos = rEnd;
+    //             }
+    //         }
+
+    //         std::string chr = it->second[0].chromosome;
+    //         std::string region = chr + ":" + std::to_string(minPos) + "-" + std::to_string(maxPos);
+
+    //         // std::cout << "region sofclipping " << region << std::endl;
+
+    //         std::vector<BamRecord> softClippedReads = GetSoftClippedReadsInRegion(bamFile, region);
+    //         // std::cout << softClippedReads.size() << std::endl;
+
+    //         // for (auto& scRead : softClippedReads) {
+    //         for (int i = 0; i<softClippedReads.size(); i++) {
+    //             BamRecord scRead = softClippedReads[i];
+    //             clustered_aln_t clusteredRead;
+    //             clusteredRead.chromosome = scRead.chrName();
+    //             clusteredRead.pos = scRead.Position();
+    //             clusteredRead.read = scRead;
+    //             clusteredRead.readName = scRead.Qname();
+
+    //             clusteredRead.strand = scRead.GetStrand();
+    //             std::string readName = scRead.Qname() + scRead.Seq();
+    //             double meanBaseQual = scRead.MeanBaseQuality();
+    //             clusteredRead.mean_bq = meanBaseQual;
+    //             it->second.push_back(clusteredRead);
+    //         }
+ 
+    //         clustersFile << chr << "\t" << minPos << "\t" << maxPos << "\t" << it->second.size() << "\n";
+    //         ++it;
+    //     }
+    // }
+    // clustersFile.close();
     std::cout << " INFO: Rescueing soft-clipped reads for " << chromosomeName << std::endl;
 
-    // Remove clusters that do not meet the minimum read support and add nearby soft-clipped reads
-    BamReader softClipReader(bamFile);
+    BamReader softClipReader(bamFile);  // Reuse a single BamReader instance
     for (auto it = candidateClusters.begin(); it != candidateClusters.end();) {
         if (it->second.size() < minSupport) {
-            it = candidateClusters.erase(it);
-        }
-        else {
+            it = candidateClusters.erase(it);  // Remove clusters with insufficient support
+        } else {
             int64_t minPos = 9000000000000000;
             int64_t maxPos = 0;
+
+            // Calculate the min and max positions for the region
             for (auto& i : it->second) {
                 int64_t rStart = i.pos;
-                int64_t rEnd = i.pos+i.read.Seq().length();
+                int64_t rEnd = i.pos + i.read.Seq().length();
 
-                if (rStart <=  minPos) {
+                if (rStart < minPos) {
                     minPos = rStart;
                 }
-                if (rEnd >= maxPos+i.read.Seq().length()) {
+                if (rEnd > maxPos) {
                     maxPos = rEnd;
                 }
             }
@@ -481,32 +575,28 @@ std::map<std::string, std::vector<clustered_aln_t>> clusterInformativeReads(
             std::string chr = it->second[0].chromosome;
             std::string region = chr + ":" + std::to_string(minPos) + "-" + std::to_string(maxPos);
 
-            // std::cout << "region sofclipping " << region << std::endl;
+            // Retrieve soft-clipped reads for the calculated region
+            std::vector<BamRecord> softClippedReads = GetSoftClippedReadsInRegion(softClipReader, region);
 
-            std::vector<BamRecord> softClippedReads = GetSoftClippedReadsInRegion(bamFile, region);
-            // std::cout << softClippedReads.size() << std::endl;
-
-            // for (auto& scRead : softClippedReads) {
-            for (int i = 0; i<softClippedReads.size(); i++) {
-                BamRecord scRead = softClippedReads[i];
+            // Process soft-clipped reads and add them to the current cluster
+            for (const auto& scRead : softClippedReads) {
                 clustered_aln_t clusteredRead;
                 clusteredRead.chromosome = scRead.chrName();
                 clusteredRead.pos = scRead.Position();
                 clusteredRead.read = scRead;
                 clusteredRead.readName = scRead.Qname();
-
                 clusteredRead.strand = scRead.GetStrand();
-                std::string readName = scRead.Qname() + scRead.Seq();
-                double meanBaseQual = scRead.MeanBaseQuality();
-                clusteredRead.mean_bq = meanBaseQual;
-                it->second.push_back(clusteredRead);
+                clusteredRead.mean_bq = scRead.MeanBaseQuality();
+                it->second.push_back(clusteredRead);  // Add the read to the current cluster
             }
- 
-            // clustersFile << chr << "\t" << minPos << "\t" << maxPos << "\t" << it->second.size() << "\n";
+
+            // Write to file the region and number of reads in the cluster
+            clustersFile << chr << "\t" << minPos << "\t" << maxPos << "\t" << it->second.size() << "\n";
             ++it;
         }
     }
     clustersFile.close();
+
 
     return candidateClusters;
 }
